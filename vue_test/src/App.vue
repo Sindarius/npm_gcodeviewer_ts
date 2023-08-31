@@ -22,7 +22,7 @@ onMounted(() => {
 
     <div class="wrapper">
       <HelloWorld msg="You did it!" />
-      <canvas ref="viewercanvas" width="300" height="300" />
+      <canvas tabindex="1" ref="viewercanvas" width="300" height="300" />
     </div>
   </header>
 

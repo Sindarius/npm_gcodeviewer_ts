@@ -11,13 +11,14 @@ import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial"
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight"
 import { PointLight } from "@babylonjs/core/Lights/pointLight"
 import { FreeCamera } from "@babylonjs/core/Cameras/freeCamera"
+import { FlyCamera } from "@babylonjs/core/Cameras/flyCamera"
 
 export default class Viewer {
 
     scene: Scene | undefined  
     engine: Engine | null = null
     orbitCamera: ArcRotateCamera | null = null
-    freeCamera: FreeCamera | null = null
+    flyCamera: FlyCamera | null = null
     offscreenCanvas: OffscreenCanvas    
     box : Mesh
     boxRotation: number
@@ -91,23 +92,23 @@ export default class Viewer {
         this.scene.doNotHandleCursors = true;
 
         //Orbit Cam
-        this.orbitCamera = new ArcRotateCamera('Camera', Math.PI / 2, 2.356194, 15, new Vector3(0, 0, 0), this.scene);
-        this.orbitCamera.invertRotation = false;
-        this.orbitCamera.attachControl(this.offscreenCanvas, true);
-        this.orbitCamera.maxZ = 100000;
-        this.orbitCamera.lowerRadiusLimit = 5;
-        this.orbitCamera.setPosition(new Vector3(0,0,0))
-        this.orbitCamera.setTarget(new Vector3(0,0,50))
+        // this.orbitCamera = new ArcRotateCamera('Camera', Math.PI / 2, 2.356194, 15, new Vector3(0, 0, 0), this.scene);
+        // this.orbitCamera.invertRotation = false;
+        // this.orbitCamera.attachControl(this.offscreenCanvas, true);
+        // this.orbitCamera.maxZ = 100000;
+        // this.orbitCamera.lowerRadiusLimit = 5;
+        // this.orbitCamera.setPosition(new Vector3(0,0,0))
+        // this.orbitCamera.setTarget(new Vector3(0,0,50))
 
-        //Free cam
-        // this.freeCamera = new FreeCamera("FreeCamera", new Vector3(0, 0, -10), this.scene);
-        // this.freeCamera.setTarget(new Vector3(0, 0, 50));
-        // this.freeCamera.attachControl(this.offscreenCanvas, true);
+        //Fly cam
+        this.flyCamera = new FlyCamera("FreeCamera", new Vector3(0, 0, -10), this.scene);
+        this.flyCamera.setTarget(new Vector3(0, 0, 50));
+        this.flyCamera.attachControl(this.offscreenCanvas, false);
         
 
         this.pointLight = new PointLight("pl", new Vector3(0,0,0) , this.scene)
 
-        this.pointLight.radius = 200;
+        this.pointLight.radius = 50;
         this.pointLight.diffuse = new Color3(1, 1, 1);
         this.pointLight.specular = new Color3(1, 1, 1);
   
@@ -132,6 +133,7 @@ export default class Viewer {
             // this.box.rotate(Axis.X,  this.x)
             // this.box.rotate(Axis.Y,  this.y)
             // this.box.rotate(Axis.Z,  this.z)
+            this.pointLight.position = this.orbitCamera?.position ?? new Vector3(0,0,0)
 
             this.scene?.render()            
         })
@@ -156,7 +158,6 @@ export default class Viewer {
         event.eventClone.preventDefault = this.noop;
         event.eventClone.target = this.offscreenCanvas;
         this.canvasHandlers.get(handlerId)(event.eventClone);
-      
     }
 
     noop() { }

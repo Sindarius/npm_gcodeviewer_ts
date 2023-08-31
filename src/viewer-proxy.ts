@@ -25,7 +25,6 @@ const mouseEventFields = [
 		'offsetY',
 		'pageX',
 		'pageY',
-//		'relatedTarget',
 		'returnValue',
 		'screenX',
 		'screenY',
@@ -38,7 +37,31 @@ const mouseEventFields = [
 		'deltaX',
 		'deltaY',
 		'deltaZ',
-		'deltaMode']
+        'deltaMode']
+        
+const keyboardEventFields = [
+    'isTrusted',
+    'altKey',
+    'bubbles',
+    'cancelBubble',
+    'cancelable',
+    'charCode',
+    'code',
+    'composed',
+    'ctrlKey',
+    'defaultPrevented',
+    'detail',
+    'eventPhase',
+    'isComposing',
+    'key',
+    'keyCode',
+    'location',
+    'metaKey',
+    'repeat',
+    'returnValue',
+    'shiftKey',
+    'type',
+    'which']
 
 export default class ViewerProxy {
 
@@ -50,9 +73,9 @@ export default class ViewerProxy {
     constructor(canvas: HTMLCanvasElement) {
         this.mainCanvas = canvas;
         this.webWorker = new ViewerWorker()
-        //this.webWorker = new Worker(ViewerWorkerUrl);
         this.webWorker.onmessage = (e) => { this.onmessage(e) };
         this.webWorker.onerror = (e) => { this.onerror(e) };
+
         let offscreen = this.mainCanvas?.transferControlToOffscreen();
         this.webWorker.postMessage({ type: 'init', width: canvas.width, height: canvas.height, offscreencanvas : offscreen }, [offscreen])
     }
@@ -74,6 +97,11 @@ export default class ViewerProxy {
                         target = document;
                         break;
                 }
+
+                // if (e.data.eventName.includes('key')) {
+                //     console.log('retarget window', e.data)
+                //     target = window;
+                // }
                 
                 if (!target) {
                     console.error('Unknown target: ' + e.data.targetName);
@@ -81,12 +109,15 @@ export default class ViewerProxy {
                 }
                 let that = this;
 
+                console.log('Registering event ' + e.data.eventName + ' on ' + e.data.targetName)
+
                 target.addEventListener(e.data.eventName, (evt) => {
                     // We can`t pass original event to the worker
                     let eventClone = {}
                     try {
                         eventClone = that.cloneEvent(evt);
-                    } catch (e) {
+                    }
+                    catch (e) {
                         console.log('Error cloning event', e)
                     }
                     
@@ -99,6 +130,12 @@ export default class ViewerProxy {
                 }, e.data.opt);
 
             } break;
+            case 'canvasMethod':
+                console.log('canvasMethod', e.data.method, e.data.args)
+                if (this.mainCanvas) {
+                    this.mainCanvas[e.data.method](...e.data.args);
+                }
+            break;
         }
     }
 
@@ -116,18 +153,13 @@ export default class ViewerProxy {
     }
 
     cloneEvent(event) {
-        const mouseEventCloned = {};
-        for (let field of mouseEventFields)
+        var cloneFieldList = event.constructor.name === 'KeyboardEvent' ? keyboardEventFields : mouseEventFields;
+        const cloneFields = {};
+        for (let field of cloneFieldList)
         {
-            mouseEventCloned[field] = event[field]
+            cloneFields[field] = event[field]
         }
-        return mouseEventCloned;
+        return cloneFields;
     } 
-
-    onCanvasEvent(event) { 
-        //console.log('clone event', mouseEventCloned)
-        //this.webWorker.postMessage({ type: 'canvasEvent', params: [ event.constructor.name, this.cloneEvent(event)] });
-    }
-   
 
 }

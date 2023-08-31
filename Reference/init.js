@@ -1,3 +1,10 @@
+/*******************************************
+ * Reference for worker event capture from 
+ * https://xcraft.net/tutorial/lab/babylon_worker/init.js
+ * 
+ *********************************************/
+
+
 (function () {
 	'use strict';
 

@@ -21,7 +21,6 @@ self.addEventListener('message', async (message) => {
             }            
             break;
         case 'init':
-
              self.window = {
                 addEventListener:  (event, fn, opt) => {
                     self.viewer.bindHandler('window', event, fn, opt);
@@ -42,8 +41,8 @@ self.addEventListener('message', async (message) => {
                     return null
                 },
                 defaultView: self.window,
-            };
-
+            };  
+            
             self.viewer = new Viewer(message.data, self);
             self.viewer.initEngine()
 
@@ -52,10 +51,6 @@ self.addEventListener('message', async (message) => {
             console.log('cancel')
             self.idx = 100;
             break;
-        // case 'canvasEvent':
-        //     //console.log(`canvas event worker`, message.data.params)
-        //     self.viewer.onCanvasEvent(message.data.params[0],message.data.params[1])
-        //     break;
         case 'event': //UI Event
             self.viewer.handleEvent(message.data.type, message.data);
             break;
