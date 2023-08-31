@@ -16,6 +16,6 @@ module.exports = defineConfig({
     }
   },
   plugins: [
-    dts()
+    dts(),
   ]
 });
