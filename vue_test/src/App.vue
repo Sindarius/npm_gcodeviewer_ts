@@ -18,16 +18,11 @@ onMounted(() => {
 
 <template>
   <header>
-    <img alt="Vue logo" class="logo" src="./assets/logo.svg" width="125" height="125" />
-
-    <div class="wrapper">
-      <HelloWorld msg="You did it!" />
-      <canvas tabindex="1" ref="viewercanvas" width="300" height="300" />
-    </div>
+     <canvas class="canvasFull" tabindex="1" ref="viewercanvas" />
   </header>
 
   <main>
-    <TheWelcome />
+
   </main>
 </template>
 
@@ -57,5 +52,14 @@ header {
     place-items: flex-start;
     flex-wrap: wrap;
   }
+}
+
+.canvasFull {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 10;
 }
 </style>
