@@ -3,8 +3,6 @@ import Viewer from './viewer'
 self.idx = 0;
 self.viewer = null;  //Main instance of the viewer.
 
-
-
 self.addEventListener('message', async (message) => {
 
     //console.info('Message received from main thread', message.data)
@@ -53,6 +51,9 @@ self.addEventListener('message', async (message) => {
             break;
         case 'event': //UI Event
             self.viewer.handleEvent(message.data.type, message.data);
+            break;
+        case 'resize': //Resize event was fired
+            self.viewer.setSizes(message.data.width, message.data.height);
             break;
     }
 });

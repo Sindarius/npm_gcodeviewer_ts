@@ -65,10 +65,9 @@ const keyboardEventFields = [
 
 export default class ViewerProxy {
 
-    webWorker: Worker
+    private webWorker: Worker
     mainCanvas: HTMLCanvasElement | null = null
-    
-    
+        
     
     constructor(canvas: HTMLCanvasElement) {
         this.mainCanvas = canvas;
@@ -77,10 +76,16 @@ export default class ViewerProxy {
         this.webWorker.onerror = (e) => { this.onerror(e) };
 
         let offscreen = this.mainCanvas?.transferControlToOffscreen();
-        this.webWorker.postMessage({ type: 'init', width: canvas.width, height: canvas.height, offscreencanvas : offscreen }, [offscreen])
+        this.webWorker.postMessage({ type: 'init', width: this.mainCanvas.clientWidth, height: this.mainCanvas.clientHeight, offscreencanvas: offscreen }, [offscreen])
+        
+        //Handle window resize events without user having to implement
+        window.onresize = () => { 
+            this.webWorker.postMessage({ type: 'resize', width: this.mainCanvas?.clientWidth, height: this.mainCanvas?.clientHeight })
+        }
     }
 
-    onmessage(e: any) {
+    //Messages from the worker
+    private onmessage(e: any) {
         if (!e.data.type) return; //discard
         switch (e.data.type)
         {
@@ -97,11 +102,6 @@ export default class ViewerProxy {
                         target = document;
                         break;
                 }
-
-                // if (e.data.eventName.includes('key')) {
-                //     console.log('retarget window', e.data)
-                //     target = window;
-                // }
                 
                 if (!target) {
                     console.error('Unknown target: ' + e.data.targetName);
@@ -109,7 +109,7 @@ export default class ViewerProxy {
                 }
                 let that = this;
 
-                console.log('Registering event ' + e.data.eventName + ' on ' + e.data.targetName)
+                //console.log('Registering event ' + e.data.eventName + ' on ' + e.data.targetName)
 
                 target.addEventListener(e.data.eventName, (evt) => {
                     // We can`t pass original event to the worker
@@ -130,8 +130,7 @@ export default class ViewerProxy {
                 }, e.data.opt);
 
             } break;
-            case 'canvasMethod':
-                console.log('canvasMethod', e.data.method, e.data.args)
+            case 'canvasMethod': //Calls from the canvas to preform functions such as focus
                 if (this.mainCanvas) {
                     this.mainCanvas[e.data.method](...e.data.args);
                 }
@@ -139,7 +138,7 @@ export default class ViewerProxy {
         }
     }
 
-    onerror(e: any) {
+    private onerror(e: any) {
             console.log('Error received from worker')
             console.log(e) 
     }
@@ -148,10 +147,16 @@ export default class ViewerProxy {
       
     }
 
+
     cancel(): void{ 
         this.webWorker.postMessage({type: 'cancel', params: []})
     }
 
+    loadFile(fileName): void {
+        this.webWorker.postMessage({ type: 'loadFile', fileName: fileName })
+    }
+
+    //Used to clone the event properties out of an object so they can be sent to worker
     cloneEvent(event) {
         var cloneFieldList = event.constructor.name === 'KeyboardEvent' ? keyboardEventFields : mouseEventFields;
         const cloneFields = {};
