@@ -1,0 +1,9 @@
+import { Base, Command } from '../GCodeLines'
+import Props from '../processorProperties'
+
+export default function (props: Props, line: string): Base {
+  let command = new Command(line)
+  command.line = line
+  props.firmwareRetraction = true
+  return command
+}

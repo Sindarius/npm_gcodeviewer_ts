@@ -7,7 +7,7 @@ module.exports = defineConfig({
     commonjsOptions:{
       include:[/dist/, /node_modules/]
     },
-    target: "modules",
+    target: "esnext",
     lib: {
       formats: ["es", "cjs"],
       entry: path.resolve(__dirname, 'src/index.ts'),
