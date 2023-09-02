@@ -153,10 +153,7 @@ export default class Viewer {
       console.log(pickResult)
       if (pickResult.hit) {
         let move = this.processor.meshDict[pickResult.pickedMesh.name][pickResult.thinInstanceIndex] as Move
-        console.log(
-          'file position ' +
-            this.processor.meshDict[pickResult.pickedMesh.name][pickResult.thinInstanceIndex].filePosition,
-        )
+        console.log(`file position ${move.filePosition} line number ${move.lineNumber}  GCode Line: ${move.line}`)
 
         let s = (pickResult.pickedMesh as Mesh).thinInstancePartialBufferUpdate(
           'color',
