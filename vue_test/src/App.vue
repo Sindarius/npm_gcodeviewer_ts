@@ -14,11 +14,40 @@ onMounted(() => {
   }
 }) 
 
+  async function openLocalFile(file: File): Promise<void> {
+        if (!file) return
+        const reader = new FileReader()
+        reader.addEventListener('load', async (event) => {
+            const blob = event?.target?.result
+            viewer.loadFile(blob)
+        })
+        reader.readAsText(file)
+  }
+
+   function dragOver(event: DragEvent): void {
+        if ((event.dataTransfer?.files.length ?? -1) > 0) {
+            //const  file = event.dataTransfer?.files[0]
+        }
+    }
+
+    function dragLeave(event: DragEvent): void {
+        //Do nothing at the moment
+    }
+
+    async function drop(event: DragEvent): Promise<void> {
+        if ((event.dataTransfer?.files.length ?? -1) > 0) {
+            const file = event.dataTransfer?.files[0]
+            if (file) {
+                await openLocalFile(file)
+            }
+        }
+    }
+
 </script>
 
 <template>
   <header>
-     <canvas class="canvasFull" tabindex="1" ref="viewercanvas" />
+     <canvas class="canvasFull" tabindex="1" ref="viewercanvas" @dragover.prevent="dragOver" @dragleave="dragLeave" @drop.prevent="drop" />
   </header>
 
   <main>

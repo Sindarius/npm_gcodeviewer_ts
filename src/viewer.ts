@@ -1,5 +1,5 @@
 import { Engine } from '@babylonjs/core/Engines/engine'
-import { Scene } from '@babylonjs/core/scene'
+import { Scene, ScenePerformancePriority } from '@babylonjs/core/scene'
 import { Color4, Color3 } from '@babylonjs/core/Maths/math.color'
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera'
 import { Light } from '@babylonjs/core/Lights/light'
@@ -12,7 +12,13 @@ import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight'
 import { PointLight } from '@babylonjs/core/Lights/pointLight'
 import { FreeCamera } from '@babylonjs/core/Cameras/freeCamera'
 import { FlyCamera } from '@babylonjs/core/Cameras/flyCamera'
-import { Ray } from '@babylonjs/core/Culling/ray'
+import '@babylonjs/core/Culling/ray'
+import Processor from './processor'
+import { EngineInstrumentation } from '@babylonjs/core/Instrumentation/engineInstrumentation'
+import '@babylonjs/core/Engines/Extensions/engine.query'
+import { SceneInstrumentation } from '@babylonjs/core/Instrumentation/sceneInstrumentation'
+import '@babylonjs/core/Meshes/thinInstanceMesh'
+import Move from '../dist/src/GCodeLines/move'
 
 export default class Viewer {
   scene: Scene | undefined
@@ -31,7 +37,7 @@ export default class Viewer {
   pause: boolean = false
   registeredEventHandlers = new Map<string, any>() //These are event handlers we want to bind to. Currently Canvas, Window, Document that we fake in the worker.
   worker: Worker
-  raySideEffect: Ray = new Ray(new Vector3(0, 0, 0), new Vector3(0, 0, 0), 0)
+  processor: Processor = new Processor()
 
   // getBoundingInfo()
   rect = {
@@ -96,8 +102,10 @@ export default class Viewer {
     }) //WebGPU does not currently have a constructor that takes offscreen canvas
 
     this.scene = new Scene(this.engine)
-    this.scene.clearColor = new Color4(0, 0, 0, 1)
-    this.scene.doNotHandleCursors = true
+    this.scene.clearColor = new Color4(0.5, 0.5, 0.5, 1)
+    this.scene.doNotHandleCursors = true //We can't make cursor changes in the worker thread
+    //this.scene.performancePriority = ScenePerformancePriority.Aggressive
+    this.processor.scene = this.scene
 
     //Orbit Cam
     this.orbitCamera = new ArcRotateCamera('Camera', Math.PI / 2, 2.356194, 15, new Vector3(0, 0, 0), this.scene)
@@ -105,8 +113,20 @@ export default class Viewer {
     this.orbitCamera.attachControl(this.offscreenCanvas, true)
     this.orbitCamera.maxZ = 100000
     this.orbitCamera.lowerRadiusLimit = 5
-    this.orbitCamera.setPosition(new Vector3(0, 0, 0))
-    this.orbitCamera.setTarget(new Vector3(0, 0, 50))
+    this.orbitCamera.setPosition(new Vector3(150, 0, 0))
+    this.orbitCamera.setTarget(new Vector3(150, 0, 150))
+
+    //Cam properties
+    this.orbitCamera.speed = 500
+    this.orbitCamera.inertia = 0
+    this.orbitCamera.panningInertia = 0
+    this.orbitCamera.inputs.attached.keyboard.angularSpeed = 0.05
+    this.orbitCamera.inputs.attached.keyboard.zoomingSensibility = 0.5
+    this.orbitCamera.inputs.attached.keyboard.panningSensibility = 0.5
+    this.orbitCamera.angularSensibilityX = 200
+    this.orbitCamera.angularSensibilityY = 200
+    this.orbitCamera.panningSensibility = 2
+    this.orbitCamera.wheelPrecision = 0.25
 
     //Fly cam
     // this.flyCamera = new FlyCamera("FreeCamera", new Vector3(0, 0, -10), this.scene);
@@ -119,46 +139,61 @@ export default class Viewer {
     this.pointLight.diffuse = new Color3(1, 1, 1)
     this.pointLight.specular = new Color3(1, 1, 1)
 
-    this.box = CreateBox('Box', { width: 10, height: 10, depth: 10 }, this.scene)
-    this.box.position = new Vector3(0, 0, 50)
+    this.box = CreateBox('Box', { width: 1, height: 1, depth: 1 }, this.scene)
+    this.box.position = new Vector3(150, 0, 150)
     let material = new StandardMaterial('SM', this.scene)
-    material.diffuseColor = new Color3(0.5, 0.5, 0.5)
+    material.diffuseColor = new Color3(1, 0, 0)
     this.box.material = material
 
     this.scene.render()
     this.lastTimeStamp = Date.now()
 
-    this.scene.onPointerDown = () => {
-      var ray = this.scene?.createPickingRay(
-        this.scene.pointerX,
-        this.scene.pointerY,
-        Matrix.Identity(),
-        this.orbitCamera,
-      )
+    this.scene.onPointerPick = (evt, pickResult) => {
+      console.log('pointer down')
+      console.log(pickResult)
+      if (pickResult.hit) {
+        let move = this.processor.meshDict[pickResult.pickedMesh.name][pickResult.thinInstanceIndex] as Move
+        console.log(
+          'file position ' +
+            this.processor.meshDict[pickResult.pickedMesh.name][pickResult.thinInstanceIndex].filePosition,
+        )
 
-      if (ray) {
-        var hit = this.scene?.pickWithRay(ray)
-        if (hit?.pickedMesh) {
-          console.info(`hit.pickedMesh.name ${Date.now()}`)
-        }
+        let s = (pickResult.pickedMesh as Mesh).thinInstancePartialBufferUpdate(
+          'color',
+          new Float32Array([1, 0, 0, 1]),
+          pickResult.thinInstanceIndex * 4,
+        )
       }
     }
 
     this.engine.runRenderLoop(() => {
-      if (Date.now() - this.lastTimeStamp > 1000) {
-        this.x = (Math.random() - 0.5) * 0.1
-        this.y = (Math.random() - 0.5) * 0.1
-        this.z = (Math.random() - 0.5) * 0.1
-        this.lastTimeStamp = Date.now()
-        material.diffuseColor = new Color3(Math.random() / 2, Math.random() / 2, Math.random() / 2)
-      }
-      // this.box.rotate(Axis.X,  this.x)
-      // this.box.rotate(Axis.Y,  this.y)
-      // this.box.rotate(Axis.Z,  this.z)
       this.pointLight.position = this.orbitCamera?.position ?? new Vector3(0, 0, 0)
-
       this.scene?.render()
     })
+
+    //this.loadInstrumentation()
+  }
+
+  loadInstrumentation() {
+    var inst = new EngineInstrumentation(this.engine)
+    inst.captureGPUFrameTime = true
+    inst.captureShaderCompilationTime = true
+
+    var sceneInst = new SceneInstrumentation(this.scene)
+
+    let timer = Date.now()
+    this.scene.registerAfterRender(() => {
+      if (Date.now() - timer > 1000) {
+        timer = Date.now()
+        console.log('current frame time (GPU): ' + (inst.gpuFrameTimeCounter.current * 0.000001).toFixed(2) + 'ms')
+        console.log(this.scene.meshes.length)
+        console.log(`average draw calls ${sceneInst.drawCallsCounter.current}`)
+      }
+    })
+  }
+
+  loadFile(file) {
+    this.processor.loadFile(file)
   }
 
   //Send message to the main thread for events we want to bind to.

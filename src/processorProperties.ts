@@ -1,3 +1,4 @@
+import { Vector3 } from '@babylonjs/core/Maths/math.vector'
 import Tool from './tools'
 import { Color4 } from '@babylonjs/core/Maths/math.color'
 
@@ -28,6 +29,9 @@ export default class ProcessorProperties {
   filePosition: number = 0
   lineNumber: number = 0
   tools: Tool[] = []
+  currentTool: Tool = new Tool()
+  currentPosition: Vector3 = new Vector3(0, 0, 0)
+  currentFeedRate: number = 0
   progressColor: Color4 = new Color4(0, 1, 0, 1)
   progressAnimation: boolean = true //Formerly known as "renderAnimation"
   colorMode: ColorMode = ColorMode.Tool
@@ -36,8 +40,22 @@ export default class ProcessorProperties {
   zBelt: boolean = false
   zBeltLength: Number = 100
   hasMixing: boolean = false
-  currentWorkplace: number = 0
+  currentWorkplaceIdx: number = 0
+  workplaceOffsets: Vector3[] = []
   absolute: boolean = false
   firmwareRetraction: boolean = false
   units = Units.millimeters
+
+  //Used for belt processing
+  currentZ = 0
+  adj = 0
+  hyp = 0
+
+  get currentWorkplace() {
+    return this.workplaceOffsets[this.currentWorkplaceIdx]
+  }
+
+  constructor() {
+    this.workplaceOffsets.push(new Vector3(0, 0, 0)) //set a default workplace if we do not have workplaces
+  }
 }

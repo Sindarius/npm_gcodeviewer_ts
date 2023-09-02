@@ -47,5 +47,8 @@ self.addEventListener('message', async (message) => {
     case 'resize': //Resize event was fired
       self.viewer.setSizes(message.data.width, message.data.height)
       break
+    case 'loadFile':
+      self.viewer.loadFile(message.data.file)
+      break
   }
 })

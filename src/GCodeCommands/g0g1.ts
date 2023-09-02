@@ -3,8 +3,72 @@ import Props from '../processorProperties'
 
 //Reminder Add G53 check
 
+const tokenList = /(?=[GXYZEFUVAB])/
+
 export default function (props: Props, line: string): Base {
   var move = new Move(line)
+  move.tool = props.currentTool.toolNumber
+  move.lineNumber = props.lineNumber
+  move.filePosition = props.filePosition
+  move.start = props.currentPosition.clone()
+
+  const tokens = line.split(tokenList)
+
+  let forceAbsolute = false
+
+  if (props.zBelt) tokens.reverse()
+
+  for (let idx = 0; idx < tokens.length; idx++) {
+    var token = tokens[idx]
+    switch (token[0]) {
+      case 'G':
+        if (token == 'G53') forceAbsolute = true
+        if (token == 'G1' || token == 'G01') {
+          //move.extruding = true
+          move.color = props.currentTool.color
+        }
+        break
+      case 'X':
+        if (props.zBelt) {
+          props.currentPosition.x = Number(token.substring(1))
+        } else {
+          props.currentPosition.x = props.absolute
+            ? Number(token.substring(1)) + props.currentWorkplace.x
+            : props.currentPosition.x + Number(token.substring(1))
+        }
+        break
+      case 'Y':
+        if (props.zBelt) {
+          props.currentPosition.y = Number(token.substring(1)) * props.hyp
+          props.currentPosition.z = props.currentZ + props.currentPosition.y * props.adj
+        } else {
+          props.currentPosition.z = props.absolute
+            ? Number(token.substring(1)) + props.currentWorkplace.y
+            : props.currentPosition.z + Number(token.substring(1))
+        }
+        break
+      case 'Z':
+        if (props.zBelt) {
+          props.currentZ = -Number(token.substring(1))
+          props.currentPosition.z = props.currentZ + props.currentPosition.y * props.adj
+        } else {
+          props.currentPosition.y = props.absolute
+            ? Number(token.substring(1)) + props.currentWorkplace.z
+            : props.currentPosition.y + Number(token.substring(1))
+        }
+        break
+      case 'E':
+        if (Number(token.substring(1)) > 0) {
+          move.extruding = true
+        }
+        break
+      case 'F':
+        props.currentFeedRate = Number(token.substring(1))
+        break
+    }
+  }
+
+  move.end = props.currentPosition.clone()
 
   return move
 }

@@ -138,6 +138,8 @@ export default class ViewerProxy {
               } catch (e) {
                 console.log('Error cloning event', e)
               }
+              evt.stopPropagation()
+              evt.preventDefault()
 
               that.webWorker.postMessage({
                 type: 'event',
@@ -145,6 +147,7 @@ export default class ViewerProxy {
                 eventName: e.data.eventName,
                 eventClone: eventClone,
               })
+              return false
             },
             e.data.opt,
           )
@@ -169,8 +172,8 @@ export default class ViewerProxy {
     this.webWorker.postMessage({ type: 'cancel', params: [] })
   }
 
-  loadFile(fileName): void {
-    this.webWorker.postMessage({ type: 'loadFile', fileName: fileName })
+  loadFile(file): void {
+    this.webWorker.postMessage({ type: 'loadFile', file: file })
   }
 
   //Used to clone the event properties out of an object so they can be sent to worker
