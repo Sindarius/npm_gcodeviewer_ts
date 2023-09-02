@@ -38,9 +38,15 @@ export default class Processor {
     }
     console.info('File Loaded.... Rendering Vertices')
     await this.testRenderScene()
+    let prevTarget = null
     this.gpuPicker.colorTestCallBack = (colorId) => {
+      if (prevTarget) {
+        let m = prevTarget
+        if (m && m.mesh) m.mesh.thinInstancePartialBufferUpdate('color', m.line.color, m.index * 4)
+      }
       let m = this.meshDict[colorId]
       if (m && m.mesh) m.mesh.thinInstancePartialBufferUpdate('color', [1, 0, 0, 1], m.index * 4)
+      prevTarget = m
     }
   }
 
@@ -84,9 +90,14 @@ export default class Processor {
       let sl = renderlines.slice(idx * this.breakPoint, (idx + 1) * this.breakPoint)
       let rl = this.testBuildMesh(sl)
       this.meshes.push(rl)
-      if (idx % 1000 == 0) {
+      if (idx % 500 == 0) {
         await this.delay(0.0001)
       }
+    }
+
+    for (let m in this.meshes) {
+      let mesh = this.meshes[m]
+      this.gpuPicker.addToRenderList(mesh)
     }
   }
 
@@ -116,13 +127,12 @@ export default class Processor {
       colorData.set(lineData.Color, idx * 4)
       //colorData.set([line.colorId[0] / 255, line.colorId[1] / 255, line.colorId[2] / 255, 1], idx * 4)
       pickData.set([line.colorId[0] / 255, line.colorId[1] / 255, line.colorId[2] / 255], idx * 3)
-      this.meshDict[`${line.colorId[0]}_${line.colorId[1]}_${line.colorId[2]}`] = { mesh: box, index: idx }
+      this.meshDict[`${line.colorId[0]}_${line.colorId[1]}_${line.colorId[2]}`] = { mesh: box, index: idx, line: line }
     }
 
     box.thinInstanceSetBuffer('matrix', matrixData, 16, true)
     box.thinInstanceSetBuffer('color', colorData, 4)
     box.thinInstanceSetBuffer('pickColor', pickData, 3) //this holds the color ids for the mesh
-    this.gpuPicker.addToRenderList(box)
     return box
   }
 }
