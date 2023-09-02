@@ -6,20 +6,19 @@ import { Light } from '@babylonjs/core/Lights/light'
 import { Vector3, Matrix } from '@babylonjs/core/Maths/math.vector'
 import { Mesh } from '@babylonjs/core/Meshes/mesh'
 import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder'
-import { Axis } from '@babylonjs/core/Maths/math.axis'
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial'
-import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight'
 import { PointLight } from '@babylonjs/core/Lights/pointLight'
-import { FreeCamera } from '@babylonjs/core/Cameras/freeCamera'
 import { FlyCamera } from '@babylonjs/core/Cameras/flyCamera'
 import '@babylonjs/core/Culling/ray'
 import Processor from './processor'
 import { EngineInstrumentation } from '@babylonjs/core/Instrumentation/engineInstrumentation'
-import '@babylonjs/core/Engines/Extensions/engine.query'
 import { SceneInstrumentation } from '@babylonjs/core/Instrumentation/sceneInstrumentation'
 import '@babylonjs/core/Meshes/thinInstanceMesh'
-import Move from '../dist/src/GCodeLines/move'
+import '@babylonjs/core/Engines/Extensions/engine.query'
+import '@babylonjs/core/Culling/ray'
+import GPUPicker from './gpupicker'
 
+let ColorID = [0, 0, 0]
 export default class Viewer {
   scene: Scene | undefined
   engine: Engine | null = null
@@ -89,6 +88,7 @@ export default class Viewer {
     this.rect.bottom = this.rect.height = height
     if (this.engine) {
       this.engine.resize()
+      this.processor.gpuPicker.updateRenderTargetSize(this.engine.getRenderWidth(), this.engine.getRenderHeight())
     }
   }
 
@@ -101,11 +101,20 @@ export default class Viewer {
       doNotHandleContextLost: true,
     }) //WebGPU does not currently have a constructor that takes offscreen canvas
 
+    this.engine.enableOfflineSupport = false
+
     this.scene = new Scene(this.engine)
     this.scene.clearColor = new Color4(0.5, 0.5, 0.5, 1)
     this.scene.doNotHandleCursors = true //We can't make cursor changes in the worker thread
-    //this.scene.performancePriority = ScenePerformancePriority.Aggressive
+    this.scene.performancePriority = ScenePerformancePriority.Intermediate
+
     this.processor.scene = this.scene
+    this.processor.gpuPicker = new GPUPicker(
+      this.scene,
+      this.engine,
+      this.offscreenCanvas.width,
+      this.offscreenCanvas.height,
+    )
 
     //Orbit Cam
     this.orbitCamera = new ArcRotateCamera('Camera', Math.PI / 2, 2.356194, 15, new Vector3(0, 0, 0), this.scene)
@@ -128,11 +137,6 @@ export default class Viewer {
     this.orbitCamera.panningSensibility = 2
     this.orbitCamera.wheelPrecision = 0.25
 
-    //Fly cam
-    // this.flyCamera = new FlyCamera("FreeCamera", new Vector3(0, 0, -10), this.scene);
-    // this.flyCamera.setTarget(new Vector3(0, 0, 50));
-    // this.flyCamera.attachControl(this.offscreenCanvas, false);
-
     this.pointLight = new PointLight('pl', new Vector3(0, 0, 0), this.scene)
 
     this.pointLight.radius = 50
@@ -147,21 +151,6 @@ export default class Viewer {
 
     this.scene.render()
     this.lastTimeStamp = Date.now()
-
-    this.scene.onPointerPick = (evt, pickResult) => {
-      console.log('pointer down')
-      console.log(pickResult)
-      if (pickResult.hit) {
-        let move = this.processor.meshDict[pickResult.pickedMesh.name][pickResult.thinInstanceIndex] as Move
-        console.log(`file position ${move.filePosition} line number ${move.lineNumber}  GCode Line: ${move.line}`)
-
-        let s = (pickResult.pickedMesh as Mesh).thinInstancePartialBufferUpdate(
-          'color',
-          new Float32Array([1, 0, 0, 1]),
-          pickResult.thinInstanceIndex * 4,
-        )
-      }
-    }
 
     this.engine.runRenderLoop(() => {
       this.pointLight.position = this.orbitCamera?.position ?? new Vector3(0, 0, 0)
@@ -189,8 +178,8 @@ export default class Viewer {
     })
   }
 
-  loadFile(file) {
-    this.processor.loadFile(file)
+  async loadFile(file) {
+    await this.processor.loadFile(file)
   }
 
   //Send message to the main thread for events we want to bind to.
@@ -215,4 +204,11 @@ export default class Viewer {
   }
 
   noop() {}
+
+  unload() {
+    this.engine.dispose()
+    this.scene = null
+    this.engine = null
+    this.worker.postMessage({ type: 'unloadComplete', params: [] })
+  }
 }

@@ -10,7 +10,7 @@ export default function (props: Props, line: string): Base {
   move.tool = props.currentTool.toolNumber
   move.lineNumber = props.lineNumber
   move.filePosition = props.filePosition
-  move.start = props.currentPosition.clone()
+  props.currentPosition.toArray(move.start)
 
   const tokens = line.split(tokenList)
 
@@ -25,16 +25,17 @@ export default function (props: Props, line: string): Base {
         if (token == 'G53') forceAbsolute = true
         if (token == 'G1' || token == 'G01') {
           //move.extruding = true
-          move.color = props.currentTool.color
+          props.currentTool.color.toArray(move.color)
         }
         break
       case 'X':
         if (props.zBelt) {
           props.currentPosition.x = Number(token.substring(1))
         } else {
-          props.currentPosition.x = props.absolute
-            ? Number(token.substring(1)) + props.currentWorkplace.x
-            : props.currentPosition.x + Number(token.substring(1))
+          props.currentPosition.x =
+            props.absolute || forceAbsolute
+              ? Number(token.substring(1)) + props.currentWorkplace.x
+              : props.currentPosition.x + Number(token.substring(1))
         }
         break
       case 'Y':
@@ -42,9 +43,10 @@ export default function (props: Props, line: string): Base {
           props.currentPosition.y = Number(token.substring(1)) * props.hyp
           props.currentPosition.z = props.currentZ + props.currentPosition.y * props.adj
         } else {
-          props.currentPosition.z = props.absolute
-            ? Number(token.substring(1)) + props.currentWorkplace.y
-            : props.currentPosition.z + Number(token.substring(1))
+          props.currentPosition.z =
+            props.absolute || forceAbsolute
+              ? Number(token.substring(1)) + props.currentWorkplace.y
+              : props.currentPosition.z + Number(token.substring(1))
         }
         break
       case 'Z':
@@ -52,9 +54,10 @@ export default function (props: Props, line: string): Base {
           props.currentZ = -Number(token.substring(1))
           props.currentPosition.z = props.currentZ + props.currentPosition.y * props.adj
         } else {
-          props.currentPosition.y = props.absolute
-            ? Number(token.substring(1)) + props.currentWorkplace.z
-            : props.currentPosition.y + Number(token.substring(1))
+          props.currentPosition.y =
+            props.absolute || forceAbsolute
+              ? Number(token.substring(1)) + props.currentWorkplace.z
+              : props.currentPosition.y + Number(token.substring(1))
         }
         break
       case 'E':
@@ -68,7 +71,7 @@ export default function (props: Props, line: string): Base {
     }
   }
 
-  move.end = props.currentPosition.clone()
+  props.currentPosition.toArray(move.end)
 
   return move
 }

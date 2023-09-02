@@ -158,6 +158,9 @@ export default class ViewerProxy {
           this.mainCanvas[e.data.method](...e.data.args)
         }
         break
+      case 'unloadComplete':
+        this.webWorker.terminate()
+        break
     }
   }
 
@@ -174,6 +177,10 @@ export default class ViewerProxy {
 
   loadFile(file): void {
     this.webWorker.postMessage({ type: 'loadFile', file: file })
+  }
+
+  unload(): void {
+    this.webWorker.postMessage({ type: 'unload', params: [] })
   }
 
   //Used to clone the event properties out of an object so they can be sent to worker

@@ -8,6 +8,7 @@ import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial'
 import { Color3 } from '@babylonjs/core/Maths/math.color'
 import { Vector3 } from '@babylonjs/core/Maths/math.vector'
 import '@babylonjs/core/Meshes/thinInstanceMesh'
+import GPUPicker from './gpupicker'
 
 export default class Processor {
   gCodeLines: Base[] = []
@@ -16,11 +17,12 @@ export default class Processor {
   meshes: Mesh[] = []
   renderFuncs: any[] = []
   breakPoint = 500
-  meshDict: { [key: string]: Move[] } = {}
+  meshDict: { [key: string]: {} } = {}
+  gpuPicker: GPUPicker
 
   constructor() {}
 
-  loadFile(file) {
+  async loadFile(file) {
     this.gCodeLines = []
     this.ProcessorProperties = new ProcessorProperties() //Reset for now
     console.log('Processing file')
@@ -30,9 +32,16 @@ export default class Processor {
       this.ProcessorProperties.lineNumber = idx
       this.ProcessorProperties.filePosition += line.length + 1 //Account for newlines that have been stripped
       this.gCodeLines.push(ProcessLine(this.ProcessorProperties, line.toUpperCase())) //uperrcase all the gcode
+      if (idx > 20000 && idx < 20005) {
+        console.log(this.gCodeLines[idx])
+      }
     }
     console.info('File Loaded.... Rendering Vertices')
-    this.testRenderScene()
+    await this.testRenderScene()
+    this.gpuPicker.colorTestCallBack = (colorId) => {
+      let m = this.meshDict[colorId]
+      if (m && m.mesh) m.mesh.thinInstancePartialBufferUpdate('color', [1, 0, 0, 1], m.index * 4)
+    }
   }
 
   async testRenderScene() {
@@ -58,7 +67,7 @@ export default class Processor {
           this.gCodeLines[idx] &&
           this.gCodeLines[idx].isMove &&
           this.gCodeLines[idx].extruding &&
-          this.gCodeLines[idx].length > 0.2
+          this.gCodeLines[idx].length > 0.05
         ) {
           renderlines.push(this.gCodeLines[idx])
         } else {
@@ -75,10 +84,10 @@ export default class Processor {
       let sl = renderlines.slice(idx * this.breakPoint, (idx + 1) * this.breakPoint)
       let rl = this.testBuildMesh(sl)
       this.meshes.push(rl)
-      if (idx % 500 == 0) await this.delay(0.0001)
+      if (idx % 1000 == 0) {
+        await this.delay(0.0001)
+      }
     }
-
-    //this.scene.freezeActiveMeshes()
   }
 
   delay(ms) {
@@ -91,35 +100,29 @@ export default class Processor {
     box.convertToUnIndexedMesh()
     let matrixData = new Float32Array(16 * renderlines.length)
     let colorData = new Float32Array(4 * renderlines.length)
+    let pickData = new Float32Array(3 * renderlines.length)
 
     let material = new StandardMaterial('materia', this.scene)
     material.diffuseColor = new Color3(0.5, 0.5, 0.5)
     box.material = material
-    box.thinInstanceEnablePicking = true
 
     box.name = `Mesh${this.meshes.length}}`
-    this.meshDict[box.name] = []
 
     for (var idx = 0; idx < renderlines.length; idx++) {
       let line = renderlines[idx] as Move
       var lineData = line.renderLine(0.4)
 
       lineData.Matrix.copyToArray(matrixData, idx * 16)
-      lineData.Color.toArray(colorData, idx * 4)
-      this.meshDict[box.name].push(line)
+      colorData.set(lineData.Color, idx * 4)
+      //colorData.set([line.colorId[0] / 255, line.colorId[1] / 255, line.colorId[2] / 255, 1], idx * 4)
+      pickData.set([line.colorId[0] / 255, line.colorId[1] / 255, line.colorId[2] / 255], idx * 3)
+      this.meshDict[`${line.colorId[0]}_${line.colorId[1]}_${line.colorId[2]}`] = { mesh: box, index: idx }
     }
 
-    box.doNotSyncBoundingInfo = false
-    box.thinInstanceSetBuffer('matrix', matrixData, 16)
+    box.thinInstanceSetBuffer('matrix', matrixData, 16, true)
     box.thinInstanceSetBuffer('color', colorData, 4)
-    box.thinInstanceRefreshBoundingInfo(true)
-
-    // box.freezeWorldMatrix()
-
-    // let beforeRenderFunc = () => {}
-    // this.renderFuncs.push(beforeRenderFunc)
-    // this.scene.registerBeforeRender(beforeRenderFunc)
-    // this.scene.freezeActiveMeshes()
+    box.thinInstanceSetBuffer('pickColor', pickData, 3) //this holds the color ids for the mesh
+    this.gpuPicker.addToRenderList(box)
     return box
   }
 }

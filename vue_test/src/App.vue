@@ -2,7 +2,7 @@
 import HelloWorld from './components/HelloWorld.vue'
 import TheWelcome from './components/TheWelcome.vue'
 import Viewer_Proxy from 'test'
-import { ref, onMounted} from 'vue'
+import { ref, onMounted, onUnmounted} from 'vue'
 
 let viewer: Viewer|null = null;
 const viewercanvas = ref(null);
@@ -13,6 +13,10 @@ onMounted(() => {
     viewer.init();
   }
 }) 
+
+onUnmounted(() => { 
+  
+})
 
   async function openLocalFile(file: File): Promise<void> {
         if (!file) return

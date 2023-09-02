@@ -50,5 +50,8 @@ self.addEventListener('message', async (message) => {
     case 'loadFile':
       self.viewer.loadFile(message.data.file)
       break
+    case 'unload':
+      self.viewer.unload()
+      break
   }
 })

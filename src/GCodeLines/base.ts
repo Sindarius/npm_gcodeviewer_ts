@@ -1,5 +1,7 @@
 import ProcessorProperties from '../processorProperties'
 
+export let colorMap: any = {}
+
 export default abstract class Base {
   line: string = ''
   lineNumber: number = 0
