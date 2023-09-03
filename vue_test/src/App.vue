@@ -2,15 +2,23 @@
 import HelloWorld from './components/HelloWorld.vue'
 import TheWelcome from './components/TheWelcome.vue'
 import Viewer_Proxy from 'test'
-import { ref, onMounted, onUnmounted} from 'vue'
+import { ref, onMounted, onUnmounted, reactive} from 'vue'
 
 let viewer: Viewer|null = null;
 const viewercanvas = ref(null);
+const gcodeLine = ref({line: ''});
+
+
 
 onMounted(() => { 
   if(viewercanvas.value != null){
     viewer = new Viewer_Proxy(viewercanvas.value);
     viewer.init();
+    viewer.passThru = (e) => {
+      if (e.type == 'currentline') {
+        gcodeLine.value.line = e.line;
+      }
+    }
   }
 }) 
 
@@ -47,12 +55,18 @@ onUnmounted(() => {
         }
     }
 
+function reset(){
+  viewer.reset();
+    }
+
 </script>
 
 <template>
   <header>
+    <div class="gcodeline">{{ gcodeLine.line }}</div>
      <canvas class="canvasFull" tabindex="1" ref="viewercanvas" @dragover.prevent="dragOver" @dragleave="dragLeave" @drop.prevent="drop" />
-  </header>
+    <input class="reset" type="button" value="Reset" @click="reset" />
+    </header>
 
   <main>
 
@@ -63,6 +77,7 @@ onUnmounted(() => {
 header {
   line-height: 1.5;
 }
+
 
 .logo {
   display: block;
@@ -94,5 +109,23 @@ header {
   top: 0;
   left: 0;
   z-index: 10;
+}
+.gcodeline { 
+  position: absolute;
+  top:5px;
+  left:5px;
+  font-size:20px;
+  font-family:'Courier New', Courier, monospace;
+  z-index: 11;
+}
+
+.reset {
+  position: absolute;
+  top:5px;
+  right:5px;
+  font-size:20px;
+  font-family:'Courier New', Courier, monospace;
+  z-index: 11;
+
 }
 </style>
