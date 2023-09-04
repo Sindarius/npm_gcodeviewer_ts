@@ -29,7 +29,7 @@ export default class ProcessorProperties {
    filePosition: number = 0
    lineNumber: number = 0
    tools: Tool[] = []
-   currentTool: Tool = new Tool()
+   currentTool: Tool
    currentPosition: Vector3 = new Vector3(0, 0, 0)
    currentFeedRate: number = 0
    progressColor: Color4 = new Color4(0, 1, 0, 1)
@@ -56,7 +56,7 @@ export default class ProcessorProperties {
    }
 
    buildToolFloat32Array() {
-      let toolArray = new Float32Array(this.lineCount * 4)
+      let toolArray = new Array(this.lineCount * 4)
       let idx = 0
       for (let idx = 0; idx < this.tools.length; idx++) {
          this.tools[idx].color.toArray(toolArray, idx * 4)
@@ -71,5 +71,6 @@ export default class ProcessorProperties {
       this.tools.push(new Tool(2, new Color4(0, 0, 1, 1))) //set a default tool if we do not have tools
       this.tools.push(new Tool(3, new Color4(1, 1, 0, 1))) //set a default tool if we do not have tools
       this.tools.push(new Tool(4, new Color4(1, 0, 1, 1))) //set a default tool if we do not have tools
+      this.currentTool = this.tools[0]
    }
 }

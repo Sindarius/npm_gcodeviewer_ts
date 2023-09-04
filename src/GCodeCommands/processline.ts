@@ -2,7 +2,7 @@ import ProcessorProperties from '../processorProperties'
 import * as GCodeCommands from '.'
 import { Base, Comment } from '../GCodeLines'
 
-const commandRegex = /[GM]+[0-9.]+/g
+const commandRegex = /[GMT]+[0-9.]+/g
 
 export function ProcessLine(props: ProcessorProperties, line: string): Base {
    let lineLength = line.length
@@ -38,7 +38,13 @@ export function ProcessLine(props: ProcessorProperties, line: string): Base {
       case 'G91':
          break
       default:
-         result = new Comment(props, line)
+         if (line.startsWith('T')) {
+            //toolRegex.test(line)) {
+            result = GCodeCommands.t(props, line)
+         } else {
+            result = new Comment(props, line)
+         }
+         break
    }
    return result
 }

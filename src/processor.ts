@@ -4,29 +4,24 @@ import { ProcessLine } from './GCodeCommands/processline'
 import { Scene } from '@babylonjs/core/scene'
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder'
 import { Mesh } from '@babylonjs/core/Meshes/mesh'
-//import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial'
-import { ShaderMaterial } from '@babylonjs/core/Materials/shaderMaterial'
-import { CustomMaterial } from '@babylonjs/materials/custom/customMaterial'
-import { Color3 } from '@babylonjs/core/Maths/math.color'
 import { Vector3 } from '@babylonjs/core/Maths/math.vector'
 import { Axis, Space } from '@babylonjs/core/Maths/math.axis'
 import '@babylonjs/core/Meshes/thinInstanceMesh'
 import GPUPicker from './gpupicker'
 import { colorToNum } from './util'
-import { vertexShader, fragmentShader } from './rendershaders'
 import ModelMaterial from './modelmaterial'
+
+import { Color4 } from '@babylonjs/core/Maths/math.color'
 
 export default class Processor {
    gCodeLines: Base[] = []
-   ProcessorProperties: ProcessorProperties = new ProcessorProperties()
+   processorProperties: ProcessorProperties = new ProcessorProperties()
    scene: Scene
    meshes: Mesh[] = []
    renderFuncs: any[] = []
    breakPoint = 160000000
-   //meshDict: { [key: string]: {} } = {} //Hashed set of meshes for picking by id
    gpuPicker: GPUPicker
    worker: Worker
-   // shaderMaterial: ShaderMaterial
    modelMaterial: ModelMaterial
    filePosition: number = 536202
    maxIndex: number = 0
@@ -38,14 +33,14 @@ export default class Processor {
       this.meshes = []
       //this.meshDict = {}
       this.buildMaterial()
-      this.ProcessorProperties = new ProcessorProperties() //Reset for now
+      this.processorProperties = new ProcessorProperties() //Reset for now
       console.log('Processing file')
       const lines = file.split('\n')
       for (let idx = 0; idx < lines.length; idx++) {
          const line = lines[idx]
-         this.ProcessorProperties.lineNumber = idx //Use one index to match file
-         this.ProcessorProperties.filePosition += line.length + 1 //Account for newlines that have been stripped
-         this.gCodeLines.push(ProcessLine(this.ProcessorProperties, line.toUpperCase())) //uperrcase all the gcode
+         this.processorProperties.lineNumber = idx //Use one index to match file
+         this.processorProperties.filePosition += line.length + 1 //Account for newlines that have been stripped
+         this.gCodeLines.push(ProcessLine(this.processorProperties, line.toUpperCase())) //uperrcase all the gcode
       }
       console.info('File Loaded.... Rendering Vertices')
       await this.testRenderScene()
@@ -71,6 +66,11 @@ export default class Processor {
    buildMaterial() {
       if (!this.modelMaterial) this.modelMaterial = new ModelMaterial(this.scene)
       this.modelMaterial.updateCurrentFilePosition(this.filePosition)
+      this.modelMaterial.updateToolColors(this.processorProperties.buildToolFloat32Array())
+      setInterval(() => {
+         this.processorProperties.tools[0].color = new Color4(Math.random(), Math.random(), Math.random(), 1)
+         this.modelMaterial.updateToolColors(this.processorProperties.buildToolFloat32Array())
+      }, 10)
    }
 
    showPickColor: boolean = false
