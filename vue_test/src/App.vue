@@ -57,8 +57,12 @@ onUnmounted(() => {
 
 function reset(){
   viewer.reset();
+  viewer.updateColorTest();
     }
 
+function colortest(){
+  viewer.updateColorTest();
+   }
 </script>
 
 <template>
@@ -66,6 +70,7 @@ function reset(){
     <div class="gcodeline">{{ gcodeLine.line }}</div>
      <canvas class="canvasFull" tabindex="1" ref="viewercanvas" @dragover.prevent="dragOver" @dragleave="dragLeave" @drop.prevent="drop" />
     <input class="reset" type="button" value="Reset" @click="reset" />
+    <input class="colortest" type="button" value="Color Test" @click="colortest" />
     </header>
 
   <main>
@@ -122,6 +127,16 @@ header {
 .reset {
   position: absolute;
   top:5px;
+  right:5px;
+  font-size:20px;
+  font-family:'Courier New', Courier, monospace;
+  z-index: 11;
+
+}
+
+.colortest {
+  position: absolute;
+  top:30px;
   right:5px;
   font-size:20px;
   font-family:'Courier New', Courier, monospace;

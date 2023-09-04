@@ -194,6 +194,10 @@ export default class ViewerProxy {
       this.webWorker.postMessage({ type: 'reset', params: [] })
    }
 
+   updateColorTest(): void {
+      this.webWorker.postMessage({ type: 'updatecolortest', params: [] })
+   }
+
    //Used to clone the event properties out of an object so they can be sent to worker
    cloneEvent(event) {
       let cloneFieldList = event.constructor.name === 'KeyboardEvent' ? keyboardEventFields : mouseEventFields

@@ -14,6 +14,7 @@ import '@babylonjs/core/Meshes/thinInstanceMesh'
 import GPUPicker from './gpupicker'
 import { colorToNum } from './util'
 import { vertexShader, fragmentShader } from './rendershaders'
+import ModelMaterial from './modelmaterial'
 
 export default class Processor {
    gCodeLines: Base[] = []
@@ -21,13 +22,14 @@ export default class Processor {
    scene: Scene
    meshes: Mesh[] = []
    renderFuncs: any[] = []
-   breakPoint = 1000000
+   breakPoint = 160000000
    //meshDict: { [key: string]: {} } = {} //Hashed set of meshes for picking by id
    gpuPicker: GPUPicker
    worker: Worker
    // shaderMaterial: ShaderMaterial
-   shaderMaterial: CustomMaterial
+   modelMaterial: ModelMaterial
    filePosition: number = 536202
+   maxIndex: number = 0
 
    constructor() {}
 
@@ -61,71 +63,41 @@ export default class Processor {
             this.worker.postMessage({ type: 'currentline', line: m.line })
          }
       }
+
+      this.modelMaterial.updateCurrentFilePosition(this.gCodeLines[this.gCodeLines.length - 1].filePosition) //Set it to the end
+      this.gpuPicker.updateCurrentPosition(this.gCodeLines[this.gCodeLines.length - 1].filePosition)
    }
 
    buildMaterial() {
-      // this.shaderMaterial = new ShaderMaterial(
-      //    'processor_mat',
-      //    this.scene,
-      //    {
-      //       vertexSource: vertexShader,
-      //       fragmentSource: fragmentShader,
-      //    },
-      //    {
-      //       attributes: ['position', 'filePosition'],
-      //       uniforms: ['world', 'color', 'worldView', 'worldViewProjection', 'view', 'projection', 'viewProjection'],
-      //    },
-      // )
-      this.shaderMaterial = new CustomMaterial('processor_mat', this.scene)
-      //this.shaderMaterial.alpha = 0.9
-
-      this.shaderMaterial.AddAttribute('filePosition')
-      this.shaderMaterial.AddUniform('currentPosition', 'float', 0)
-      this.shaderMaterial.Vertex_Definitions(`
-      attribute float filePosition;
-      varying float fShow;`)
-      this.shaderMaterial.Vertex_MainBegin(`fShow = currentPosition - filePosition;`)
-      this.shaderMaterial.Fragment_Definitions(`
-      varying float fShow;
-      `)
-      this.shaderMaterial.Fragment_Custom_Alpha(`
-         if(fShow < 0.0f) {
-            discard;
-         }
-      `)
-      this.shaderMaterial.Fragment_Before_FragColor(`
-         if (fShow > 0.0f && fShow < 25000.0f) 
-         { 
-            color.rgb *= mix(vec3(0,1,0), color.rgb, fShow / 25000.0f);
-         }
-         else if(fShow > 25000.0f)
-         {
-            
-         }
-         else
-         {
-            discard;
-         }
-      `)
-
-      setInterval(() => {
-         this.filePosition += 50
-         this.gpuPicker.updateCurrentPosition(this.filePosition)
-      }, 1)
-      this.shaderMaterial.onBindObservable.add(() => {
-         if (this.shaderMaterial && this.shaderMaterial.getEffect && this.shaderMaterial.getEffect()) {
-            this.shaderMaterial.getEffect().setFloat('currentPosition', this.filePosition)
-         }
-      })
+      if (!this.modelMaterial) this.modelMaterial = new ModelMaterial(this.scene)
+      this.modelMaterial.updateCurrentFilePosition(this.filePosition)
    }
 
-   updateMaterialFilePosition(pos) {}
+   showPickColor: boolean = false
+   toggleShowPickColor() {
+      this.showPickColor = !this.showPickColor
+      this.modelMaterial.showPickColor(this.showPickColor)
+   }
+
+   async updateColorTest() {
+      let result = await new Promise((resolve) => {
+         var tempArray = new Float32Array(this.maxIndex * 4)
+         for (let idx = 0; idx < this.gCodeLines.length; idx++) {
+            let line = this.gCodeLines[idx]
+            if (line && line.mesh) {
+               tempArray.set([Math.random() % 255, Math.random() % 255, Math.random() % 255], line.index * 4)
+            }
+         }
+         resolve(tempArray)
+      })
+      this.meshes[0].thinInstancePartialBufferUpdate('color', result as Float32Array, 0)
+   }
 
    async testRenderScene() {
       //let material = new StandardMaterial('materia', this.scene)
       //material.diffuseColor = new Color3(0.5, 0.5, 0.5)
 
-      let material = this.shaderMaterial
+      let material = this.modelMaterial.material
 
       this.scene.meshes.forEach((m) => {
          m.dispose()
@@ -180,21 +152,23 @@ export default class Processor {
    }
 
    testBuildMesh(renderlines, material): Mesh {
-      // let box = MeshBuilder.CreateBox('box2', { width: 1, height: 1, depth: 1 }, this.scene)
-      // box.position = new Vector3(0, 0, 0)
-      // box.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
-      // box.bakeCurrentTransformIntoVertices()
-      // box.convertToUnIndexedMesh()
-
-      let box = MeshBuilder.CreateCylinder('box', { height: 1, diameter: 1 }, this.scene)
-      box.locallyTranslate(new Vector3(0, 0, 0))
-      box.rotate(new Vector3(0, 0, 1), Math.PI / 2, Space.WORLD)
+      this.maxIndex = renderlines.length
+      let box = MeshBuilder.CreateBox('box2', { width: 1, height: 1, depth: 1 }, this.scene)
+      box.position = new Vector3(0, 0, 0)
+      box.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
       box.bakeCurrentTransformIntoVertices()
+      box.convertToUnIndexedMesh()
+
+      // let box = MeshBuilder.CreateCylinder('box', { height: 1, diameter: 1 }, this.scene)
+      // box.locallyTranslate(new Vector3(0, 0, 0))
+      // box.rotate(new Vector3(0, 0, 1), Math.PI / 2, Space.WORLD)
+      // box.bakeCurrentTransformIntoVertices()
 
       let matrixData = new Float32Array(16 * renderlines.length)
       let colorData = new Float32Array(4 * renderlines.length)
       let pickData = new Float32Array(3 * renderlines.length)
       let filePositionData = new Float32Array(renderlines.length)
+      let toolData = new Float32Array(renderlines.length)
 
       box.material = material
 
@@ -211,6 +185,7 @@ export default class Processor {
          pickData.set([line.colorId[0] / 255, line.colorId[1] / 255, line.colorId[2] / 255], idx * 3)
 
          filePositionData.set([line.filePosition], idx) //Record the file position with the mesh
+         toolData.set([line.tool], idx)
          this.gCodeLines[colorToNum(line.colorId)] = new Move_Thin(line, box, idx) //remove unnecessary information now that we have the matrix
       }
 
@@ -219,8 +194,8 @@ export default class Processor {
       box.thinInstanceRefreshBoundingInfo(false)
       box.thinInstanceSetBuffer('color', colorData, 4)
       box.thinInstanceSetBuffer('pickColor', pickData, 3, true) //this holds the color ids for the mesh
-      console.log(filePositionData)
       box.thinInstanceSetBuffer('filePosition', filePositionData, 1, true)
+      box.thinInstanceSetBuffer('tool', toolData, 1, true)
       return box
    }
 }

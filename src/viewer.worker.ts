@@ -55,6 +55,10 @@ self.addEventListener('message', async (message) => {
          break
       case 'reset':
          self.viewer.processor.filePosition = 536202
+         self.viewer.processor.toggleShowPickColor()
+         break
+      case 'updatecolortest':
+         await self.viewer.processor.updateColorTest()
          break
    }
 })
