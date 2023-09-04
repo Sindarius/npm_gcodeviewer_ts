@@ -2,8 +2,6 @@ import { Scene } from '@babylonjs/core/scene'
 import { CustomMaterial } from '@babylonjs/materials/custom/customMaterial'
 import { Effect } from '@babylonjs/core/Materials/effect'
 import { UniformBuffer } from '@babylonjs/core/Materials/uniformBuffer'
-import { StorageBuffer } from '@babylonjs/core/Buffers/storageBuffer'
-import { ShaderMaterial } from '@babylonjs/core'
 
 export default class ModelMaterial {
    material: CustomMaterial
@@ -26,92 +24,64 @@ export default class ModelMaterial {
       this.material.AddUniform('showPickColor', 'bool', false)
       this.material.AddUniform('renderMode', 'int', 1)
       this.material.AddUniform('toolColors', 'vec4 [20]', new Float32Array(80))
+      this.material.AddUniform('focusedPickColor', 'vec3', [0, 0, 0])
 
       this.material.Vertex_Definitions(`
       attribute float filePosition;
       attribute vec3 pickColor;
       attribute float tool;
 
+      
       flat out float fShow;
       flat out vec3 vPickColor;
       flat out float fTool;
-      
+      flat out vec3 vFocusedPickColor;
+
       `)
       this.material.Vertex_MainBegin(`
       fShow = currentPosition - filePosition;
       vPickColor = pickColor;
       fTool = floor(tool);
+      vFocusedPickColor = focusedPickColor;
       `)
       this.material.Fragment_Definitions(`
       flat in float fShow;
       flat in vec3 vPickColor;
       flat in float fTool;
-      `)
-      this.material.Fragment_Custom_Alpha(`
-         if(fShow < 0.0f) {
-            discard;
-         }
+      flat in vec3 vFocusedPickColor;
       `)
 
       this.material.Fragment_Custom_Diffuse(`
-         if(showPickColor)
+
+         switch(renderMode){
+            case 0: break; // use default diffuse color;
+            case 1:                
+               diffuseColor.rgb *= toolColors[int(fTool)].rgb;
+             break;
+         }
+
+         if(focusedPickColor == vPickColor) {
+            diffuseColor.rgb = vec3(1,0,0);
+         }
+         else if(showPickColor)
          {
             diffuseColor.rgb = vPickColor;
          }
          else
-         switch(renderMode)
          {
-            //default
-            case 0: 
-                  if (fShow > 0.0f && fShow < 5000.0f) 
-                  { 
-                     diffuseColor.rgb = mix(vec3(0,1,0), diffuseColor.rgb, fShow / 5000.0f);
-                  }
-                  else if(fShow > 5000.0f)
-                  {
-                  }
-                  else
-                  {
-                     discard;
-                  }
-            break;
-            //tool
-            case 1: 
-               diffuseColor.rgb = toolColors[int(fTool)].rgb;
-            break;
+            if (fShow > 0.0f && fShow < 5000.0f) 
+            { 
+               diffuseColor.rgb *= mix(vec3(0,1,0), diffuseColor.rgb, fShow / 5000.0f);
+            }
+            else if(fShow > 5000.0f)
+            {
+            }
+            else
+            {
+               discard;
+            }
          }
-         //diffuseColor.rgb = vec3(0,1,1);
       `)
-
-      // this.material.Fragment_Before_FragColor(`
-
-      //    if(showPickColor)
-      //    {
-      //       color.rgb = vPickColor;
-      //    }
-      //    else
-      //    switch(renderMode)
-      //    {
-      //       //default
-      //       case 0:
-      //             if (fShow > 0.0f && fShow < 5000.0f)
-      //             {
-      //                color.rgb *= mix(vec3(0,1,0), color.rgb, fShow / 5000.0f);
-      //             }
-      //             else if(fShow > 5000.0f)
-      //             {
-      //             }
-      //             else
-      //             {
-      //                discard;
-      //             }
-      //       break;
-      //       //tool
-      //       case 1:
-      //          color.rgb *= toolColors[int(fTool)].rgb;
-      //       break;
-      //    }
-      // `)
 
       this.material.onBindObservable.addOnce(() => {
          this.material.getEffect()?.setInt('renderMode', 1)
@@ -154,6 +124,13 @@ export default class ModelMaterial {
    async updateToolColors(toolColors: number[]) {
       this.material.onBindObservable.addOnce(() => {
          this.material.getEffect()?.setFloatArray4('toolColors', toolColors)
+      })
+   }
+
+   setPickColor(color: number[]) {
+      console.log(color)
+      this.material.onBindObservable.addOnce(() => {
+         this.material.getEffect()?.setFloat3('focusedPickColor', color[0] / 255, color[1] / 255, color[2] / 255)
       })
    }
 

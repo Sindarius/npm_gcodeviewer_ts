@@ -64,11 +64,11 @@ export default class GPUPicker {
             1,
             1,
          )
-         const colorId = colorToNumUint8(pixels) // `${pixels[0]}_${pixels[1]}_${pixels[2]}`
+         //const colorId = colorToNumUint8(pixels) // `${pixels[0]}_${pixels[1]}_${pixels[2]}`
          //  if (pixels[0] < 100 && pixels[0] != 0)
          //console.log(colorId)
          if (this.colorTestCallBack) {
-            this.colorTestCallBack(colorId)
+            this.colorTestCallBack(pixels)
          }
       })
    }

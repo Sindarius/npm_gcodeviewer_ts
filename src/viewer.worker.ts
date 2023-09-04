@@ -60,5 +60,9 @@ self.addEventListener('message', async (message) => {
       case 'updatecolortest':
          await self.viewer.processor.updateColorTest()
          break
+      case 'updatefileposition':
+         console.log(message.data)
+         self.viewer.processor.updateFilePosition(message.data.position)
+         break
    }
 })

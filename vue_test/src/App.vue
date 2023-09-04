@@ -6,7 +6,8 @@ import { ref, onMounted, onUnmounted, reactive} from 'vue'
 
 let viewer: Viewer|null = null;
 const viewercanvas = ref(null);
-const gcodeLine = ref({line: ''});
+const gcodeLine = ref({ line: '' });
+const filePos = ref(0);
 
 
 
@@ -62,7 +63,12 @@ function reset(){
 
 function colortest(){
   viewer.updateColorTest();
-   }
+}
+
+function filePosInput() {
+  viewer.updateFilePosition(filePos.value);
+}
+   
 </script>
 
 <template>
@@ -71,6 +77,9 @@ function colortest(){
      <canvas class="canvasFull" tabindex="1" ref="viewercanvas" @dragover.prevent="dragOver" @dragleave="dragLeave" @drop.prevent="drop" />
     <input class="reset" type="button" value="Reset" @click="reset" />
     <input class="colortest" type="button" value="Color Test" @click="colortest" />
+    <form @submit.prevent="filePosInput">
+      <input class="filePosInput" v-model="filePos" type="text"/>
+    </form> 
     </header>
 
   <main>
@@ -140,6 +149,13 @@ header {
   right:5px;
   font-size:20px;
   font-family:'Courier New', Courier, monospace;
+  z-index: 11;
+}
+
+.filePosInput{
+  position:absolute;
+  top:30px;
+  left:5px;
   z-index: 11;
 
 }

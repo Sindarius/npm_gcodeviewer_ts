@@ -46,17 +46,7 @@ export default class Processor {
       await this.testRenderScene()
       let prevTarget = null
       this.gpuPicker.colorTestCallBack = (colorId) => {
-         if (prevTarget) {
-            let m = prevTarget
-            if (m && m.mesh) m.mesh.thinInstancePartialBufferUpdate('color', m.color, m.index * 4)
-         }
-
-         let m = this.gCodeLines[colorId]
-         if (m && m.mesh) {
-            m.mesh.thinInstancePartialBufferUpdate('color', [1, 0, 0, 1], m.index * 4)
-            prevTarget = m
-            this.worker.postMessage({ type: 'currentline', line: m.line })
-         }
+         this.modelMaterial.setPickColor(colorId)
       }
 
       this.modelMaterial.updateCurrentFilePosition(this.gCodeLines[this.gCodeLines.length - 1].filePosition) //Set it to the end
@@ -67,10 +57,6 @@ export default class Processor {
       if (!this.modelMaterial) this.modelMaterial = new ModelMaterial(this.scene)
       this.modelMaterial.updateCurrentFilePosition(this.filePosition)
       this.modelMaterial.updateToolColors(this.processorProperties.buildToolFloat32Array())
-      setInterval(() => {
-         this.processorProperties.tools[0].color = new Color4(Math.random(), Math.random(), Math.random(), 1)
-         this.modelMaterial.updateToolColors(this.processorProperties.buildToolFloat32Array())
-      }, 10)
    }
 
    showPickColor: boolean = false
@@ -152,17 +138,17 @@ export default class Processor {
    }
 
    testBuildMesh(renderlines, material): Mesh {
-      this.maxIndex = renderlines.length
-      let box = MeshBuilder.CreateBox('box2', { width: 1, height: 1, depth: 1 }, this.scene)
-      box.position = new Vector3(0, 0, 0)
-      box.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
-      box.bakeCurrentTransformIntoVertices()
-      box.convertToUnIndexedMesh()
-
-      // let box = MeshBuilder.CreateCylinder('box', { height: 1, diameter: 1 }, this.scene)
-      // box.locallyTranslate(new Vector3(0, 0, 0))
-      // box.rotate(new Vector3(0, 0, 1), Math.PI / 2, Space.WORLD)
+      // this.maxIndex = renderlines.length
+      // let box = MeshBuilder.CreateBox('box2', { width: 1, height: 1, depth: 1 }, this.scene)
+      // box.position = new Vector3(0, 0, 0)
+      // box.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
       // box.bakeCurrentTransformIntoVertices()
+      // box.convertToUnIndexedMesh()
+
+      let box = MeshBuilder.CreateCylinder('box', { height: 1, diameter: 1 }, this.scene)
+      box.locallyTranslate(new Vector3(0, 0, 0))
+      box.rotate(new Vector3(0, 0, 1), Math.PI / 2, Space.WORLD)
+      box.bakeCurrentTransformIntoVertices()
 
       let matrixData = new Float32Array(16 * renderlines.length)
       let colorData = new Float32Array(4 * renderlines.length)
@@ -197,5 +183,16 @@ export default class Processor {
       box.thinInstanceSetBuffer('filePosition', filePositionData, 1, true)
       box.thinInstanceSetBuffer('tool', toolData, 1, true)
       return box
+   }
+
+   getFileSize() {
+      if (this.gCodeLines) {
+         return this.gCodeLines[this.gCodeLines.length - 1].filePosition
+      }
+   }
+
+   updateFilePosition(position: number) {
+      this.modelMaterial.updateCurrentFilePosition(position) //Set it to the end
+      this.gpuPicker.updateCurrentPosition(position)
    }
 }
