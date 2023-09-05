@@ -33,6 +33,7 @@ export default class ProcessorProperties {
    currentPosition: Vector3 = new Vector3(0, 0, 0)
    currentFeedRate: number = 0
    maxFeedRate: number = 0
+   minFeedRate: number = 999999999
    progressColor: Color4 = new Color4(0, 1, 0, 1)
    progressAnimation: boolean = true //Formerly known as "renderAnimation"
    colorMode: ColorMode = ColorMode.Tool
@@ -60,6 +61,10 @@ export default class ProcessorProperties {
       if (this.currentFeedRate > this.maxFeedRate) {
          this.maxFeedRate = this.currentFeedRate
       }
+      if (this.currentFeedRate != 0 && this.currentFeedRate < this.minFeedRate) {
+         this.minFeedRate = this.currentFeedRate
+      }
+
       this.currentFeedRate = value
    }
 

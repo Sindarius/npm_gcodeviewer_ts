@@ -1,5 +1,5 @@
 import { Move, Base } from '../GCodeLines'
-import Props from '../processorProperties'
+import Props from '../processorproperties'
 import { doArc } from '../util'
 
 const tokenList = /(?=[GXYZIJKFRE])/

@@ -1,5 +1,5 @@
 import { Base, Move, Move_Thin } from './GCodeLines'
-import ProcessorProperties from './processorProperties'
+import ProcessorProperties from './processorproperties'
 import { ProcessLine } from './GCodeCommands/processline'
 import { Scene } from '@babylonjs/core/scene'
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder'
@@ -60,6 +60,7 @@ export default class Processor {
       }
 
       this.modelMaterial.setMaxFeedRate(this.processorProperties.maxFeedRate)
+      this.modelMaterial.setMinFeedRate(this.processorProperties.minFeedRate)
 
       this.modelMaterial.updateCurrentFilePosition(this.gCodeLines[this.gCodeLines.length - 1].filePosition) //Set it to the end
       this.gpuPicker.updateCurrentPosition(this.gCodeLines[this.gCodeLines.length - 1].filePosition)
@@ -145,6 +146,7 @@ export default class Processor {
 
    testBuildMesh(renderlines, material): Mesh {
       this.maxIndex = renderlines.length
+      console.log('Building Mesh', renderlines.length)
       let box = MeshBuilder.CreateBox('box2', { width: 1, height: 1, depth: 1 }, this.scene)
       box.position = new Vector3(0, 0, 0)
       box.rotate(Axis.X, Math.PI / 4, Space.LOCAL)

@@ -1,4 +1,4 @@
-import ProcessorProperties from '../processorProperties'
+import ProcessorProperties from '../processorproperties'
 import * as GCodeCommands from '.'
 import { Base, Comment } from '../GCodeLines'
 
@@ -47,10 +47,10 @@ export function ProcessLine(props: ProcessorProperties, line: string): Base {
          break
    }
 
-   if (props.firstGCodeByte == 0 && result.type == 'M') {
+   if (result && props.firstGCodeByte == 0 && result.type == 'M') {
       props.firstGCodeByte = result.filePosition
    }
-   if (result.type == 'M') {
+   if (result && result.type == 'M') {
       props.lastGCodeByte = result.filePosition
    }
 

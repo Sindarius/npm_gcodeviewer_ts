@@ -1,5 +1,5 @@
 import { Base, MCode } from '../GCodeLines'
-import Props from '../processorProperties'
+import Props from '../processorproperties'
 
 export default function (props: Props, line: string): MCode {
    return new MCode(line)

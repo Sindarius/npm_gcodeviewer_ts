@@ -1,5 +1,5 @@
 import { Move, Base } from '../GCodeLines'
-import Props from '../processorProperties'
+import Props from '../processorproperties'
 
 //Reminder Add G53 check
 
@@ -66,7 +66,7 @@ export default function (props: Props, line: string): Base {
             }
             break
          case 'F':
-            props.CurrentFeedRate = Number(token.substring(1))
+            if (move.extruding) props.CurrentFeedRate = Number(token.substring(1))
             break
       }
    }

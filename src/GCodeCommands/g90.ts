@@ -1,11 +1,11 @@
 import { Base, Command } from '../GCodeLines'
-import Props from '../processorProperties'
+import Props from '../processorproperties'
 
 export default function (props: Props, line: string): Base {
-  let command = new Command(line)
-  command.filePosition = props.filePosition
-  command.lineNumber = props.lineNumber
-  props.absolute = true
+   let command = new Command(line)
+   command.filePosition = props.filePosition
+   command.lineNumber = props.lineNumber
+   props.absolute = true
 
-  return command
+   return command
 }

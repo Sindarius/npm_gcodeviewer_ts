@@ -68,7 +68,8 @@ export default class ModelMaterial {
                diffuseColor = toolColors[int(fTool)].rgb;
              break;
             case 2:
-               diffuseColor = mix(vec3(0,0,1), vec3(1,0,0), fFeedRate / maxFeedRate); 
+               float m = (fFeedRate - minFeedRate) / (maxFeedRate - minFeedRate);
+               diffuseColor = mix(vec3(0,0,1), vec3(1,0,0), m); 
                break;
             case 5:
                diffuseColor = vPickColor.rgb;
@@ -129,8 +130,16 @@ export default class ModelMaterial {
    }
 
    setMaxFeedRate(feedRate: number) {
+      console.log(`max ${feedRate}`)
       this.material.onBindObservable.addOnce(() => {
          this.material.getEffect()?.setFloat('maxFeedRate', feedRate)
+      })
+   }
+
+   setMinFeedRate(feedRate: number) {
+      console.log(`min ${feedRate}`)
+      this.material.onBindObservable.addOnce(() => {
+         this.material.getEffect()?.setFloat('minFeedRate', feedRate)
       })
    }
 
