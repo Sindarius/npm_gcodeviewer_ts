@@ -3,10 +3,8 @@ import { Mesh } from '@babylonjs/core/Meshes/mesh'
 import { Scene } from '@babylonjs/core/scene'
 import { RenderTargetTexture } from '@babylonjs/core/Materials/Textures/renderTargetTexture'
 import { ShaderMaterial } from '@babylonjs/core/Materials/shaderMaterial'
-import { CustomMaterial } from '@babylonjs/materials/custom/customMaterial'
-import { Color3 } from '@babylonjs/core/Maths/math.color'
+import { Color4 } from '@babylonjs/core/Maths/math.color'
 import '@babylonjs/core/Engines/thinEngine'
-import { colorToNumUint8 } from './util'
 
 export default class GPUPicker {
    scene: Scene
@@ -25,6 +23,7 @@ export default class GPUPicker {
       this.width = width
       this.height = height
       this.renderTarget = new RenderTargetTexture('rt', { width, height }, this.scene, true)
+      this.renderTarget.clearColor = new Color4(0, 0, 0, 0)
       this.scene.customRenderTargets.push(this.renderTarget)
       this.shaderMaterial = new ShaderMaterial(
          'vs_mat',
