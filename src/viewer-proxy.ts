@@ -161,7 +161,9 @@ export default class ViewerProxy {
          case 'unloadComplete':
             this.webWorker.terminate()
             break
-         case 'currentline': {
+         case 'currentline':
+         case 'fileloaded':
+         case 'positionupdate': {
             if (this.passThru) {
                this.passThru(e.data)
             }
@@ -200,6 +202,10 @@ export default class ViewerProxy {
 
    updateFilePosition(filePosition: number): void {
       this.webWorker.postMessage({ type: 'updatefileposition', position: filePosition })
+   }
+
+   setRenderMode(mode: number): void {
+      this.webWorker.postMessage({ type: 'rendermode', mode: mode })
    }
 
    //Used to clone the event properties out of an object so they can be sent to worker

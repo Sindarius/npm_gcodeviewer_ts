@@ -17,7 +17,7 @@ import '@babylonjs/core/Meshes/thinInstanceMesh'
 import '@babylonjs/core/Engines/Extensions/engine.query'
 import '@babylonjs/core/Culling/ray'
 import GPUPicker from './gpupicker'
-import { PointerEventTypes } from '@babylonjs/core'
+import { PointerEventTypes } from '@babylonjs/core/Events/pointerEvents'
 
 let ColorID = [0, 0, 0]
 export default class Viewer {
@@ -164,6 +164,7 @@ export default class Viewer {
             try {
                var pos = this.processor.gCodeLines[this.processor.focusedColorId].filePosition
                this.processor.updateFilePosition(pos)
+               this.worker.postMessage({ type: 'positionupdate', position: pos })
             } catch {}
          }
       })

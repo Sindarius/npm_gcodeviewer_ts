@@ -66,11 +66,12 @@ export default function (props: Props, line: string): Base {
             }
             break
          case 'F':
-            props.currentFeedRate = Number(token.substring(1))
+            props.CurrentFeedRate = Number(token.substring(1))
             break
       }
    }
 
+   move.feedRate = props.CurrentFeedRate
    props.currentPosition.toArray(move.end)
 
    return move

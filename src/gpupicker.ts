@@ -47,12 +47,6 @@ export default class GPUPicker {
          },
       )
 
-      // this.shaderMaterial.onBindObservable.add(() => {
-      //    if (this.shaderMaterial && this.shaderMaterial.getEffect && this.shaderMaterial.getEffect()) {
-      //       this.shaderMaterial.getEffect().setFloat('currentPosition', this.currentPosition)
-      //    }
-      // })
-
       this.renderTarget.onAfterRenderObservable.add(() => {
          const x = Math.round(this.scene.pointerX)
          const y = this.height - Math.round(this.scene.pointerY)
@@ -64,9 +58,7 @@ export default class GPUPicker {
             1,
             1,
          )
-         //const colorId = colorToNumUint8(pixels) // `${pixels[0]}_${pixels[1]}_${pixels[2]}`
-         //  if (pixels[0] < 100 && pixels[0] != 0)
-         //console.log(colorId)
+
          if (this.colorTestCallBack) {
             this.colorTestCallBack(pixels)
          }

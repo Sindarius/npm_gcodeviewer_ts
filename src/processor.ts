@@ -59,8 +59,16 @@ export default class Processor {
          }
       }
 
+      this.modelMaterial.setMaxFeedRate(this.processorProperties.maxFeedRate)
+
       this.modelMaterial.updateCurrentFilePosition(this.gCodeLines[this.gCodeLines.length - 1].filePosition) //Set it to the end
       this.gpuPicker.updateCurrentPosition(this.gCodeLines[this.gCodeLines.length - 1].filePosition)
+
+      this.worker.postMessage({
+         type: 'fileloaded',
+         start: this.processorProperties.firstGCodeByte,
+         end: this.processorProperties.lastGCodeByte,
+      })
    }
 
    buildMaterial() {
@@ -153,6 +161,7 @@ export default class Processor {
       let pickData = new Float32Array(3 * renderlines.length)
       let filePositionData = new Float32Array(renderlines.length)
       let toolData = new Float32Array(renderlines.length)
+      let feedRate = new Float32Array(renderlines.length)
 
       box.material = material
 
@@ -161,15 +170,13 @@ export default class Processor {
       for (let idx = 0; idx < renderlines.length; idx++) {
          let line = renderlines[idx] as Move
          let lineData = line.renderLine(0.4, 0.2)
-
          lineData.Matrix.copyToArray(matrixData, idx * 16)
+
          colorData.set(lineData.Color, idx * 4)
-
-         //colorData.set([line.colorId[0] / 255, line.colorId[1] / 255, line.colorId[2] / 255, 1], idx * 4)
          pickData.set([line.colorId[0] / 255, line.colorId[1] / 255, line.colorId[2] / 255], idx * 3)
-
          filePositionData.set([line.filePosition], idx) //Record the file position with the mesh
          toolData.set([line.tool], idx)
+         feedRate.set([line.feedRate], idx)
          this.gCodeLines[colorToNum(line.colorId)] = new Move_Thin(line, box, idx) //remove unnecessary information now that we have the matrix
       }
 
@@ -180,6 +187,7 @@ export default class Processor {
       box.thinInstanceSetBuffer('pickColor', pickData, 3, true) //this holds the color ids for the mesh
       box.thinInstanceSetBuffer('filePosition', filePositionData, 1, true)
       box.thinInstanceSetBuffer('tool', toolData, 1, true)
+      box.thinInstanceSetBuffer('feedRate', feedRate, 1, true)
       return box
    }
 

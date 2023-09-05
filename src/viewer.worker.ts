@@ -53,6 +53,9 @@ self.addEventListener('message', async (message) => {
       case 'unload':
          self.viewer.unload()
          break
+      case 'rendermode':
+         self.viewer.processor.modelMaterial.updateRenderMode(message.data.mode)
+         break
       case 'reset':
          console.log('reset')
          switch (self.viewer.processor.modelMaterial.renderMode) {
@@ -60,12 +63,14 @@ self.addEventListener('message', async (message) => {
                console.log('Tool Mode')
                self.viewer.processor.modelMaterial.updateRenderMode(1)
                break
-
             case 1:
+               console.log('Feed Rate')
+               self.viewer.processor.modelMaterial.updateRenderMode(2)
+               break
+            case 2:
                console.log('Color Index Mode')
                self.viewer.processor.modelMaterial.updateRenderMode(5)
                break
-
             case 5:
                console.log('Default Color Mode')
                self.viewer.processor.modelMaterial.updateRenderMode(0)

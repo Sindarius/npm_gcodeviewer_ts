@@ -32,6 +32,7 @@ export default class ProcessorProperties {
    currentTool: Tool
    currentPosition: Vector3 = new Vector3(0, 0, 0)
    currentFeedRate: number = 0
+   maxFeedRate: number = 0
    progressColor: Color4 = new Color4(0, 1, 0, 1)
    progressAnimation: boolean = true //Formerly known as "renderAnimation"
    colorMode: ColorMode = ColorMode.Tool
@@ -50,6 +51,17 @@ export default class ProcessorProperties {
    currentZ = 0
    adj = 0
    hyp = 0
+
+   get CurrentFeedRate(): number {
+      return this.currentFeedRate
+   }
+
+   set CurrentFeedRate(value: number) {
+      if (this.currentFeedRate > this.maxFeedRate) {
+         this.maxFeedRate = this.currentFeedRate
+      }
+      this.currentFeedRate = value
+   }
 
    get currentWorkplace() {
       return this.workplaceOffsets[this.currentWorkplaceIdx]
