@@ -2,11 +2,12 @@ import { Scene } from '@babylonjs/core/scene'
 import { CustomMaterial } from '@babylonjs/materials/custom/customMaterial'
 import { Effect } from '@babylonjs/core/Materials/effect'
 import { UniformBuffer } from '@babylonjs/core/Materials/uniformBuffer'
+import { Color3 } from '@babylonjs/core/Maths/math.color'
 
 export default class ModelMaterial {
    material: CustomMaterial
-   showPick: boolean = false
    toolBuffer: UniformBuffer
+   renderMode = 5
 
    constructor(public scene: Scene) {
       this.buildMaterial()
@@ -14,15 +15,16 @@ export default class ModelMaterial {
 
    buildMaterial() {
       this.material = new CustomMaterial('processor_mat', this.scene)
+      this.material.specularColor = new Color3(0, 0, 0)
       //this.material.alpha = 0.9
 
       this.material.AddAttribute('filePosition')
       this.material.AddAttribute('pickColor')
       this.material.AddAttribute('tool')
 
+      this.material.AddUniform('animationLength', 'float', 5000)
       this.material.AddUniform('currentPosition', 'float', 0)
-      this.material.AddUniform('showPickColor', 'bool', false)
-      this.material.AddUniform('renderMode', 'int', 1)
+      this.material.AddUniform('renderMode', 'int', 5)
       this.material.AddUniform('toolColors', 'vec4 [20]', new Float32Array(80))
       this.material.AddUniform('focusedPickColor', 'vec3', [0, 0, 0])
 
@@ -56,27 +58,23 @@ export default class ModelMaterial {
          switch(renderMode){
             case 0: break; // use default diffuse color;
             case 1:                
-               diffuseColor.rgb *= toolColors[int(fTool)].rgb;
+               diffuseColor = toolColors[int(fTool)].rgb;
              break;
+            case 5:
+               diffuseColor = vPickColor.rgb;
+               break;
          }
 
          if(focusedPickColor == vPickColor) {
-            diffuseColor.rgb = vec3(1,0,0);
-         }
-         else if(showPickColor)
-         {
-            diffuseColor.rgb = vPickColor;
+            diffuseColor = vec3(1, 1, 1) - diffuseColor.rgb;
          }
          else
          {
-            if (fShow > 0.0f && fShow < 5000.0f) 
+            if (fShow >= 0.0f && fShow < animationLength) 
             { 
-               diffuseColor.rgb *= mix(vec3(0,1,0), diffuseColor.rgb, fShow / 5000.0f);
+               diffuseColor = mix(vec3(1, 1, 1) - diffuseColor.rgb, diffuseColor.rgb, fShow / animationLength);
             }
-            else if(fShow > 5000.0f)
-            {
-            }
-            else
+            else if (fShow < 0.0f)
             {
                discard;
             }
@@ -84,18 +82,12 @@ export default class ModelMaterial {
       `)
 
       this.material.onBindObservable.addOnce(() => {
-         this.material.getEffect()?.setInt('renderMode', 1)
+         this.material.getEffect()?.setInt('renderMode', 5)
       })
    }
 
-   get getEffect(): Effect | null {
-      if (this.material && this.material.getEffect && this.material.getEffect()) {
-         return this.material.getEffect()
-      }
-      return null
-   }
-
    updateRenderMode(mode: number) {
+      this.renderMode = mode
       this.material.onBindObservable.addOnce(() => {
          this.material.getEffect()?.setInt('renderMode', mode)
       })
@@ -107,12 +99,6 @@ export default class ModelMaterial {
       })
    }
 
-   showPickColor(show: boolean) {
-      this.material.onBindObservable.addOnce(() => {
-         this.material.getEffect()?.setBool('showPickColor', show)
-      })
-   }
-
    getMaterial() {
       if (this.material == null) {
          this.buildMaterial()
@@ -120,7 +106,6 @@ export default class ModelMaterial {
       return this.material
    }
 
-   //https://playground.babylonjs.com/#MQG92I#29 UniformBuffer sample
    async updateToolColors(toolColors: number[]) {
       this.material.onBindObservable.addOnce(() => {
          this.material.getEffect()?.setFloatArray4('toolColors', toolColors)
@@ -128,7 +113,6 @@ export default class ModelMaterial {
    }
 
    setPickColor(color: number[]) {
-      console.log(color)
       this.material.onBindObservable.addOnce(() => {
          this.material.getEffect()?.setFloat3('focusedPickColor', color[0] / 255, color[1] / 255, color[2] / 255)
       })

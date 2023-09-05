@@ -17,7 +17,7 @@ onMounted(() => {
     viewer.init();
     viewer.passThru = (e) => {
       if (e.type == 'currentline') {
-        gcodeLine.value.line = e.line;
+        gcodeLine.value.line = e;
       }
     }
   }
@@ -68,6 +68,21 @@ function colortest(){
 function filePosInput() {
   viewer.updateFilePosition(filePos.value);
 }
+
+let timeOutId = -1
+function toggleIncrement() {
+  if (timeOutId > 0) {
+    window.clearInterval(timeOutId)
+     timeOutId = -1
+  }
+  else {
+    timeOutId = window.setInterval(() => {
+      filePos.value = Number(filePos.value) + 250
+      viewer.updateFilePosition(filePos.value )
+    }, 100)
+  }
+}
+
    
 </script>
 
@@ -80,6 +95,7 @@ function filePosInput() {
     <form @submit.prevent="filePosInput">
       <input class="filePosInput" v-model="filePos" type="text"/>
     </form> 
+    <input class="filePlay" type="button" value="Toggle" @click="toggleIncrement">
     </header>
 
   <main>
@@ -157,6 +173,13 @@ header {
   top:30px;
   left:5px;
   z-index: 11;
-
 }
+
+.filePlay {
+  position:absolute;
+  top:30px;
+  left:175px;
+  z-index: 11;
+}
+
 </style>

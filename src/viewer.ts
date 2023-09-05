@@ -17,6 +17,7 @@ import '@babylonjs/core/Meshes/thinInstanceMesh'
 import '@babylonjs/core/Engines/Extensions/engine.query'
 import '@babylonjs/core/Culling/ray'
 import GPUPicker from './gpupicker'
+import { PointerEventTypes } from '@babylonjs/core'
 
 let ColorID = [0, 0, 0]
 export default class Viewer {
@@ -156,6 +157,15 @@ export default class Viewer {
       this.engine.runRenderLoop(() => {
          this.pointLight.position = this.orbitCamera?.position ?? new Vector3(0, 0, 0)
          this.scene?.render()
+      })
+
+      this.scene.onPointerObservable.add((pointerInfo) => {
+         if (pointerInfo.type == PointerEventTypes.POINTERTAP) {
+            try {
+               var pos = this.processor.gCodeLines[this.processor.focusedColorId].filePosition
+               this.processor.updateFilePosition(pos)
+            } catch {}
+         }
       })
 
       //this.loadInstrumentation()

@@ -8,11 +8,9 @@ import { Vector3 } from '@babylonjs/core/Maths/math.vector'
 import { Axis, Space } from '@babylonjs/core/Maths/math.axis'
 import '@babylonjs/core/Meshes/thinInstanceMesh'
 import GPUPicker from './gpupicker'
-import { colorToNum } from './util'
+import { colorToNum, delay } from './util'
 import ModelMaterial from './modelmaterial'
-
-import { Color4 } from '@babylonjs/core/Maths/math.color'
-
+colorToNum
 export default class Processor {
    gCodeLines: Base[] = []
    processorProperties: ProcessorProperties = new ProcessorProperties()
@@ -23,8 +21,9 @@ export default class Processor {
    gpuPicker: GPUPicker
    worker: Worker
    modelMaterial: ModelMaterial
-   filePosition: number = 536202
+   filePosition: number = 0
    maxIndex: number = 0
+   focusedColorId = 0
 
    constructor() {}
 
@@ -38,15 +37,26 @@ export default class Processor {
       const lines = file.split('\n')
       for (let idx = 0; idx < lines.length; idx++) {
          const line = lines[idx]
-         this.processorProperties.lineNumber = idx //Use one index to match file
+         this.processorProperties.lineNumber = idx + 1 //Use one index to match file
          this.processorProperties.filePosition += line.length + 1 //Account for newlines that have been stripped
          this.gCodeLines.push(ProcessLine(this.processorProperties, line.toUpperCase())) //uperrcase all the gcode
       }
       console.info('File Loaded.... Rendering Vertices')
       await this.testRenderScene()
-      let prevTarget = null
       this.gpuPicker.colorTestCallBack = (colorId) => {
-         this.modelMaterial.setPickColor(colorId)
+         let id = colorToNum(colorId)
+         if (this.gCodeLines[id]) {
+            this.focusedColorId = id
+            let o = this.gCodeLines[colorToNum(colorId)]
+
+            this.worker.postMessage({
+               type: 'currentline',
+               line: o.line,
+               lineNumber: o.lineNumber,
+               filePosition: o.filePosition,
+            })
+            this.modelMaterial.setPickColor(colorId)
+         }
       }
 
       this.modelMaterial.updateCurrentFilePosition(this.gCodeLines[this.gCodeLines.length - 1].filePosition) //Set it to the end
@@ -59,13 +69,9 @@ export default class Processor {
       this.modelMaterial.updateToolColors(this.processorProperties.buildToolFloat32Array())
    }
 
-   showPickColor: boolean = false
-   toggleShowPickColor() {
-      this.showPickColor = !this.showPickColor
-      this.modelMaterial.showPickColor(this.showPickColor)
-   }
-
    async updateColorTest() {
+      let v = new Float32Array()
+
       let result = await new Promise((resolve) => {
          var tempArray = new Float32Array(this.maxIndex * 4)
          for (let idx = 0; idx < this.gCodeLines.length; idx++) {
@@ -80,9 +86,6 @@ export default class Processor {
    }
 
    async testRenderScene() {
-      //let material = new StandardMaterial('materia', this.scene)
-      //material.diffuseColor = new Color3(0.5, 0.5, 0.5)
-
       let material = this.modelMaterial.material
 
       this.scene.meshes.forEach((m) => {
@@ -100,13 +103,12 @@ export default class Processor {
       let tossCount = 0
       for (let idx = 0; idx < this.gCodeLines.length - 1; idx++) {
          try {
-            if (
-               this.gCodeLines[idx] &&
-               this.gCodeLines[idx].isMove &&
-               this.gCodeLines[idx].extruding &&
-               this.gCodeLines[idx].length > 0.05
-            ) {
+            //Regular move
+            if (this.gCodeLines[idx].type == 'M' && this.gCodeLines[idx].extruding) {
                renderlines.push(this.gCodeLines[idx])
+            }
+            //Arc Move
+            else if (this.gCodeLines[idx].type == 'A' && this.gCodeLines[idx].extruding) {
             } else {
                tossCount++
             }
@@ -122,7 +124,7 @@ export default class Processor {
          let rl = this.testBuildMesh(sl, material)
          this.meshes.push(rl)
          //if (idx % 2 == 0) {
-         await this.delay(0.0001)
+         await delay(0.0001)
          //}
       }
 
@@ -133,22 +135,18 @@ export default class Processor {
       }
    }
 
-   delay(ms) {
-      return new Promise((resolve) => setTimeout(resolve, ms))
-   }
-
    testBuildMesh(renderlines, material): Mesh {
-      // this.maxIndex = renderlines.length
-      // let box = MeshBuilder.CreateBox('box2', { width: 1, height: 1, depth: 1 }, this.scene)
-      // box.position = new Vector3(0, 0, 0)
-      // box.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
-      // box.bakeCurrentTransformIntoVertices()
-      // box.convertToUnIndexedMesh()
-
-      let box = MeshBuilder.CreateCylinder('box', { height: 1, diameter: 1 }, this.scene)
-      box.locallyTranslate(new Vector3(0, 0, 0))
-      box.rotate(new Vector3(0, 0, 1), Math.PI / 2, Space.WORLD)
+      this.maxIndex = renderlines.length
+      let box = MeshBuilder.CreateBox('box2', { width: 1, height: 1, depth: 1 }, this.scene)
+      box.position = new Vector3(0, 0, 0)
+      box.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
       box.bakeCurrentTransformIntoVertices()
+      box.convertToUnIndexedMesh()
+
+      // let box = MeshBuilder.CreateCylinder('box', { height: 1, diameter: 1 }, this.scene)
+      // box.locallyTranslate(new Vector3(0, 0, 0))
+      // box.rotate(new Vector3(0, 0, 1), Math.PI / 2, Space.WORLD)
+      // box.bakeCurrentTransformIntoVertices()
 
       let matrixData = new Float32Array(16 * renderlines.length)
       let colorData = new Float32Array(4 * renderlines.length)
@@ -178,7 +176,7 @@ export default class Processor {
       box.thinInstanceSetBuffer('matrix', matrixData, 16, true)
       box.doNotSyncBoundingInfo = true
       box.thinInstanceRefreshBoundingInfo(false)
-      box.thinInstanceSetBuffer('color', colorData, 4)
+      box.thinInstanceSetBuffer('color', colorData, 4, true)
       box.thinInstanceSetBuffer('pickColor', pickData, 3, true) //this holds the color ids for the mesh
       box.thinInstanceSetBuffer('filePosition', filePositionData, 1, true)
       box.thinInstanceSetBuffer('tool', toolData, 1, true)

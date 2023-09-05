@@ -54,14 +54,28 @@ self.addEventListener('message', async (message) => {
          self.viewer.unload()
          break
       case 'reset':
-         self.viewer.processor.filePosition = 536202
-         self.viewer.processor.toggleShowPickColor()
+         console.log('reset')
+         switch (self.viewer.processor.modelMaterial.renderMode) {
+            case 0:
+               console.log('Tool Mode')
+               self.viewer.processor.modelMaterial.updateRenderMode(1)
+               break
+
+            case 1:
+               console.log('Color Index Mode')
+               self.viewer.processor.modelMaterial.updateRenderMode(5)
+               break
+
+            case 5:
+               console.log('Default Color Mode')
+               self.viewer.processor.modelMaterial.updateRenderMode(0)
+               break
+         }
          break
       case 'updatecolortest':
          await self.viewer.processor.updateColorTest()
          break
       case 'updatefileposition':
-         console.log(message.data)
          self.viewer.processor.updateFilePosition(message.data.position)
          break
    }

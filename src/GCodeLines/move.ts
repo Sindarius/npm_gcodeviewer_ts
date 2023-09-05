@@ -19,6 +19,7 @@ export class MoveData {
 }
 
 export default class Move extends Base {
+   type = 'M'
    tool: number = 0
    start: number[] = [0, 0, 0]
    end: number[] = [0, 0, 0]
@@ -31,7 +32,6 @@ export default class Move extends Base {
 
    constructor(line: string) {
       super(line)
-      this.isMove = true
    }
 
    get length(): number {
