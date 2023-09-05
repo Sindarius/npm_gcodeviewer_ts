@@ -6,7 +6,7 @@ import { Color3 } from '@babylonjs/core/Maths/math.color'
 export default class ModelMaterial {
    material: CustomMaterial
    toolBuffer: UniformBuffer
-   renderMode = 5
+   renderMode = 0
 
    constructor(public scene: Scene) {
       this.buildMaterial()
@@ -24,7 +24,7 @@ export default class ModelMaterial {
 
       this.material.AddUniform('animationLength', 'float', 5000)
       this.material.AddUniform('currentPosition', 'float', 0)
-      this.material.AddUniform('renderMode', 'int', 5)
+      this.material.AddUniform('renderMode', 'int', 0)
       this.material.AddUniform('toolColors', 'vec4 [20]', new Float32Array(80))
       this.material.AddUniform('focusedPickColor', 'vec3', [0, 0, 0])
       this.material.AddUniform('minFeedRate', 'float', 0)
@@ -91,10 +91,6 @@ export default class ModelMaterial {
             }
          }
       `)
-
-      this.material.onBindObservable.addOnce(() => {
-         this.material.getEffect()?.setInt('renderMode', 5)
-      })
    }
 
    updateRenderMode(mode: number) {

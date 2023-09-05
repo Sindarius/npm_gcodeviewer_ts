@@ -83,5 +83,8 @@ self.addEventListener('message', async (message) => {
       case 'updatefileposition':
          self.viewer.processor.updateFilePosition(message.data.position)
          break
+      case 'getgcodes': {
+         await self.viewer.processor.getGCodeInRange(message.data.position, message.data.count)
+      }
    }
 })

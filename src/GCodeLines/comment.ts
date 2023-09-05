@@ -3,8 +3,6 @@ import ProcessorProperties from '../processorproperties'
 
 export default class Comment extends Base {
    constructor(props: ProcessorProperties, line: string) {
-      super(line)
-      this.lineNumber = props.lineNumber
-      this.filePosition = props.filePosition
+      super(props, line)
    }
 }

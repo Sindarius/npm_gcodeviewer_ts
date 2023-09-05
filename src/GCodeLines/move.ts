@@ -2,6 +2,7 @@ import { Color4 } from '@babylonjs/core/Maths/math.color'
 import { Quaternion, Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector'
 import Base from './base'
 import { numToColor } from '../util'
+import ProcessorProperties from '../processorproperties'
 
 const PIOVER2 = Math.PI / 2
 const VECDIV2 = [2, 2, 2]
@@ -30,8 +31,8 @@ export default class Move extends Base {
    isPerimeter: boolean = false
    colorId: number[] = [0, 0, 0]
 
-   constructor(line: string) {
-      super(line)
+   constructor(props: ProcessorProperties, line: string) {
+      super(props, line)
    }
 
    get length(): number {

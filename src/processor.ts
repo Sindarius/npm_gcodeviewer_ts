@@ -8,7 +8,12 @@ import { Vector3 } from '@babylonjs/core/Maths/math.vector'
 import { Axis, Space } from '@babylonjs/core/Maths/math.axis'
 import '@babylonjs/core/Meshes/thinInstanceMesh'
 import GPUPicker from './gpupicker'
-import { colorToNum, delay } from './util'
+import {
+   colorToNum,
+   delay,
+   findClosestNumberIndexInSortedArrayRecursive,
+   findClosestNumberIndexInSortedArray,
+} from './util'
 import ModelMaterial from './modelmaterial'
 colorToNum
 export default class Processor {
@@ -45,8 +50,8 @@ export default class Processor {
       await this.testRenderScene()
       this.gpuPicker.colorTestCallBack = (colorId) => {
          let id = colorToNum(colorId)
-         if (this.gCodeLines[id]) {
-            this.focusedColorId = id
+         this.focusedColorId = id
+         if (this.gCodeLines[id] && id > 0) {
             let o = this.gCodeLines[colorToNum(colorId)]
 
             this.worker.postMessage({
@@ -179,7 +184,7 @@ export default class Processor {
          filePositionData.set([line.filePosition], idx) //Record the file position with the mesh
          toolData.set([line.tool], idx)
          feedRate.set([line.feedRate], idx)
-         this.gCodeLines[colorToNum(line.colorId)] = new Move_Thin(line, box, idx) //remove unnecessary information now that we have the matrix
+         this.gCodeLines[colorToNum(line.colorId)] = new Move_Thin(this.processorProperties, line, box, idx) //remove unnecessary information now that we have the matrix
       }
 
       box.thinInstanceSetBuffer('matrix', matrixData, 16, true)
@@ -197,6 +202,39 @@ export default class Processor {
       if (this.gCodeLines) {
          return this.gCodeLines[this.gCodeLines.length - 1].filePosition
       }
+   }
+
+   getGCodeInRange(filePos, count = 20) {
+      // let idx = findClosestNumberIndexInSortedArrayRecursive(
+      //    this.gCodeLines,
+      //    Number(filePos),
+      //    0,
+      //    this.gCodeLines.length - 1,
+      //    'filePosition',
+      // )
+
+      let idx = findClosestNumberIndexInSortedArray(this.gCodeLines, filePos, 'filePosition')
+
+      let min = Math.max(0, idx - count / 2)
+      let max = Math.min(idx + count / 2, this.gCodeLines.length - 1)
+
+      let sub = this.gCodeLines.slice(min, max)
+      let lines = []
+      for (let idx in sub) {
+         let l = sub[idx]
+         lines.push({
+            line: l.line,
+            lineNumber: l.lineNumber,
+            filePosition: l.filePosition,
+            type: l.type,
+            focus: false,
+         })
+      }
+
+      var f = lines.find((f) => f.lineNumber == this.gCodeLines[idx].lineNumber)
+      if (f) f.focus = true
+
+      this.worker.postMessage({ type: 'getgcodes', lines: lines })
    }
 
    updateFilePosition(position: number) {

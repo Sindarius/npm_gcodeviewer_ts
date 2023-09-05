@@ -162,9 +162,8 @@ export default class Viewer {
       this.scene.onPointerObservable.add((pointerInfo) => {
          if (pointerInfo.type == PointerEventTypes.POINTERTAP) {
             try {
-               console.log(this.processor.focusedColorId)
-               var pos = this.processor.gCodeLines[this.processor.focusedColorId].filePosition
                if (this.processor.focusedColorId > 10) {
+                  var pos = this.processor.gCodeLines[this.processor.focusedColorId].filePosition
                   this.processor.updateFilePosition(pos)
                   this.worker.postMessage({ type: 'positionupdate', position: pos })
                }

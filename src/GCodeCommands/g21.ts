@@ -3,5 +3,5 @@ import Props, { Units } from '../processorproperties'
 
 export default function (props: Props, line: string): Base {
    props.units = Units.millimeters
-   return new Command(line)
+   return new Command(props, line)
 }

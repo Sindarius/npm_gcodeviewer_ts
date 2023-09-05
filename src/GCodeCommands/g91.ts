@@ -2,9 +2,7 @@ import { Base, Command } from '../GCodeLines'
 import Props from '../processorproperties'
 
 export default function (props: Props, line: string): Base {
-   let command = new Command(line)
-   command.filePosition = props.filePosition
-   command.lineNumber = props.lineNumber
+   let command = new Command(props, line)
    props.absolute = false
    return command
 }

@@ -202,3 +202,68 @@ export function doArc(tokens, currentPosition, relativeMove, arcSegLength, fixRa
    //position is the final position
    return { position: { x: move.x, y: move.z, z: move.y }, points: points } //we'll abort the render and move te position to the new position.
 }
+
+//Thanks ChatGPT
+export function findClosestNumberIndexInSortedArray(arr, target, fieldName) {
+   let left = 0
+   let right = arr.length - 1
+   let closestIndex = -1
+   let closestDifference = Infinity
+
+   while (left <= right) {
+      const mid = Math.floor((left + right) / 2)
+      const currentNumber = arr[mid][fieldName]
+      const currentDifference = Math.abs(target - currentNumber)
+
+      if (currentDifference < closestDifference) {
+         closestIndex = mid
+         closestDifference = currentDifference
+      }
+
+      if (currentNumber === target) {
+         return mid // Found an exact match, return its index.
+      } else if (currentNumber < target) {
+         left = mid + 1
+      } else {
+         right = mid - 1
+      }
+   }
+
+   return closestIndex
+}
+
+export function findClosestNumberIndexInSortedArrayRecursive(arr, target, left, right, fieldName) {
+   if (left > right) {
+      return -1 // Base case: no element found.
+   }
+
+   const mid = Math.floor((left + right) / 2)
+   const currentNumber = arr[mid][fieldName]
+   const currentDifference = Math.abs(target - currentNumber)
+
+   if (currentDifference === 0) {
+      return mid // Found an exact match, return its index.
+   }
+
+   const leftIndex = findClosestNumberIndexInSortedArrayRecursive(arr, target, left, mid - 1, fieldName)
+   const rightIndex = findClosestNumberIndexInSortedArrayRecursive(arr, target, mid + 1, right, fieldName)
+
+   if (leftIndex === -1 && rightIndex === -1) {
+      return mid // No closer match found, return the current index.
+   }
+
+   if (leftIndex === -1) {
+      return currentDifference <= Math.abs(target - arr[rightIndex][fieldName]) ? mid : rightIndex
+   }
+
+   if (rightIndex === -1) {
+      return currentDifference <= Math.abs(target - arr[leftIndex][fieldName]) ? mid : leftIndex
+   }
+
+   return currentDifference <=
+      Math.min(Math.abs(target - arr[leftIndex][fieldName]), Math.abs(target - arr[rightIndex][fieldName]))
+      ? mid
+      : currentDifference === Math.abs(target - arr[leftIndex][fieldName])
+      ? mid
+      : rightIndex
+}

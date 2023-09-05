@@ -8,7 +8,9 @@ export default abstract class Base {
    filePosition: number = 0
    type: string = 'C'
 
-   constructor(line: string) {
+   constructor(props: ProcessorProperties, line: string) {
       this.line = line
+      this.lineNumber = props.lineNumber
+      this.filePosition = props.filePosition
    }
 }

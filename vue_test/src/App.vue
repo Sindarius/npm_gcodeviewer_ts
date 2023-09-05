@@ -2,6 +2,7 @@
 import { vModelSelect } from 'vue'
 import HelloWorld from './components/HelloWorld.vue'
 import TheWelcome from './components/TheWelcome.vue'
+import GCodeLine from './components/GCodeLine.vue'
 import Viewer_Proxy from 'test'
 import { ref, onMounted, onUnmounted, reactive, watch } from 'vue'
 
@@ -9,10 +10,11 @@ let viewer: Viewer | null = null
 const viewercanvas = ref(null)
 const gcodeLine = ref({ line: '' })
 const filePos = ref(0)
-const renderMode = ref('')
+const renderMode = ref(0)
 const playing = ref('mdi-play')
 const start = ref(0)
 const end = ref(0)
+const lines = ref<string[]>([])
 
 const renderModes = [
    { label: 'Default', value: 0 },
@@ -36,6 +38,10 @@ onMounted(() => {
                break
             case 'positionupdate':
                filePos.value = e.position
+               break
+            case 'getgcodes':
+               lines.value.length = 0
+               lines.value.push(...e.lines)
                break
          }
       }
@@ -79,6 +85,7 @@ watch(renderMode, (newVal, oldVal) => {
 
 watch(filePos, (newVal, oldVal) => {
    viewer.updateFilePosition(newVal)
+   viewer.getGCodes(filePos.value, 20)
 })
 
 function reset() {
@@ -103,8 +110,7 @@ function toggleIncrement() {
    } else {
       playing.value = 'mdi-stop'
       timeOutId = window.setInterval(() => {
-         filePos.value = Number(filePos.value) + 250
-         viewer.updateFilePosition(filePos.value)
+         filePos.value = Number(filePos.value) + 20
       }, 100)
    }
 }
@@ -135,6 +141,16 @@ function toggleIncrement() {
       <v-btn class="filePlay" size="large" type="button" @click="toggleIncrement"
          ><v-icon :icon="playing"></v-icon
       ></v-btn>
+      <div class="lines">
+         <GCodeLine
+            v-for="l in lines"
+            :key="l"
+            :line="l.line"
+            :line-number="l.lineNumber"
+            :line-type="l.type"
+            :focus="l.focus"
+         ></GCodeLine>
+      </div>
       <v-slider v-model="filePos" class="slider-pos" :min="start" :max="end" :step="1"></v-slider>
    </header>
 
@@ -220,5 +236,14 @@ header {
    z-index: 11;
    left: 100px;
    right: 100px;
+}
+.lines {
+   position: absolute;
+   top: 100px;
+   bottom: 30px;
+   left: 10px;
+   overflow: none;
+   z-index: 11;
+   pointer-events: none;
 }
 </style>

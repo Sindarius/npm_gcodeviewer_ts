@@ -1,8 +1,9 @@
 import { Base } from '../../dist/src/GCodeLines'
+import ProcessorProperties from '../processorproperties'
 
 export default class ArcMove extends Base {
    type = 'A'
-   constructor(line: string) {
-      super(line)
+   constructor(props: ProcessorProperties, line: string) {
+      super(props, line)
    }
 }

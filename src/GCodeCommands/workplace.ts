@@ -4,5 +4,5 @@ import { Base, Command } from '../GCodeLines'
 import Props from '../processorproperties'
 
 export default function (props: Props, line: string): Base {
-   return new Command(line)
+   return new Command(props, line)
 }

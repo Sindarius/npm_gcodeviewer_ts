@@ -6,10 +6,8 @@ import Props from '../processorproperties'
 const tokenList = /(?=[GXYZEFUVAB])/
 
 export default function (props: Props, line: string): Base {
-   let move = new Move(line)
+   let move = new Move(props, line)
    move.tool = props.currentTool.toolNumber
-   move.lineNumber = props.lineNumber
-   move.filePosition = props.filePosition
    props.currentPosition.toArray(move.start)
 
    const tokens = line.split(tokenList)

@@ -161,9 +161,10 @@ export default class ViewerProxy {
          case 'unloadComplete':
             this.webWorker.terminate()
             break
-         case 'currentline':
-         case 'fileloaded':
-         case 'positionupdate': {
+         //case 'currentline':
+         //case 'fileloaded':
+         //case 'positionupdate':
+         default: {
             if (this.passThru) {
                this.passThru(e.data)
             }
@@ -206,6 +207,10 @@ export default class ViewerProxy {
 
    setRenderMode(mode: number): void {
       this.webWorker.postMessage({ type: 'rendermode', mode: mode })
+   }
+
+   getGCodes(position: number, count: number): void {
+      this.webWorker.postMessage({ type: 'getgcodes', position: position, count: count })
    }
 
    //Used to clone the event properties out of an object so they can be sent to worker
