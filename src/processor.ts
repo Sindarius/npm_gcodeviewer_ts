@@ -13,6 +13,7 @@ import {
    delay,
    findClosestNumberIndexInSortedArrayRecursive,
    findClosestNumberIndexInSortedArray,
+   binarySearchClosest,
 } from './util'
 import ModelMaterial from './modelmaterial'
 colorToNum
@@ -213,10 +214,20 @@ export default class Processor {
       //    'filePosition',
       // )
 
-      let idx = findClosestNumberIndexInSortedArray(this.gCodeLines, filePos, 'filePosition')
+      //  let idx = findClosestNumberIndexInSortedArray(this.gCodeLines, filePos, 'filePosition')
+      let idx = binarySearchClosest(this.gCodeLines, filePos, 'filePosition')
+
+      if (this.gCodeLines[idx].filePosition < filePos) {
+         idx--
+      }
 
       let min = Math.max(0, idx - count / 2)
       let max = Math.min(idx + count / 2, this.gCodeLines.length - 1)
+
+      if (count % 2 == 1) {
+         min++
+         max++
+      }
 
       let sub = this.gCodeLines.slice(min, max)
       let lines = []

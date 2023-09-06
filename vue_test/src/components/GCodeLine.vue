@@ -1,6 +1,6 @@
 <template>
-   <div :style="{ backgroundColor: background }" class="gcode-line">
-      <span class="line-number">{{ lineNumber }}</span>
+   <div class="gcode-line" :class="{ focused: focus }">
+      <span :style="{ borderRightColor: background }" class="line-number">{{ lineNumber }}</span>
       <span class="line-content">{{ line }}</span>
    </div>
 </template>
@@ -23,7 +23,6 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const background = computed(() => {
-   if (props.focus) return '#228822aa'
    switch (props.lineType) {
       case 'G':
          return '#00ff00aa'
@@ -46,8 +45,16 @@ const background = computed(() => {
    width: 400px;
    font-size: 16px;
 }
+
+.focused {
+   border-color: greenyellow;
+}
+
 .line-number {
-   padding-right: 30px;
+   padding-right: 20px;
+   border-right-width: 8px;
+   border-right-style: solid;
+   margin-right: 5px;
 }
 
 .line-content {

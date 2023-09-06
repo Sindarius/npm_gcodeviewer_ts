@@ -85,7 +85,7 @@ watch(renderMode, (newVal, oldVal) => {
 
 watch(filePos, (newVal, oldVal) => {
    viewer.updateFilePosition(newVal)
-   viewer.getGCodes(filePos.value, 20)
+   viewer.getGCodes(filePos.value, 21)
 })
 
 function reset() {
@@ -198,6 +198,7 @@ header {
    top: 5px;
    left: 5px;
    z-index: 11;
+   background-color: #000000aa;
 }
 
 .reset {
