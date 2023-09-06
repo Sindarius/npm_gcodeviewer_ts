@@ -47,10 +47,10 @@ export function ProcessLine(props: ProcessorProperties, line: string): Base {
          break
    }
 
-   if (result && props.firstGCodeByte == 0 && result.type == 'M') {
+   if (result && props.firstGCodeByte == 0 && result.type == 'L') {
       props.firstGCodeByte = result.filePosition
    }
-   if (result && result.type == 'M') {
+   if (result && result.type == 'L') {
       props.lastGCodeByte = result.filePosition
    }
 

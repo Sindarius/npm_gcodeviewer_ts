@@ -9,6 +9,7 @@ export default class extends Base {
    index: number
    constructor(props: ProcessorProperties, move: Move, mesh: any, index: number) {
       super(props, move.line) //Props only used to satisify super but values overwritten with original
+      this.moveType = move.moveType
       this.filePosition = move.filePosition
       this.lineNumber = move.lineNumber
       this.color = move.color

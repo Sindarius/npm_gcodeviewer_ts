@@ -119,7 +119,7 @@ export default class Processor {
       for (let idx = 0; idx < this.gCodeLines.length - 1; idx++) {
          try {
             //Regular move
-            if (this.gCodeLines[idx].type == 'M' && this.gCodeLines[idx].extruding) {
+            if (this.gCodeLines[idx].type == 'L' && this.gCodeLines[idx].extruding) {
                renderlines.push(this.gCodeLines[idx])
             }
             //Arc Move
@@ -217,9 +217,9 @@ export default class Processor {
       //  let idx = findClosestNumberIndexInSortedArray(this.gCodeLines, filePos, 'filePosition')
       let idx = binarySearchClosest(this.gCodeLines, filePos, 'filePosition')
 
-      if (this.gCodeLines[idx].filePosition < filePos) {
-         idx--
-      }
+      // if (this.gCodeLines[idx].filePosition < filePos) {
+      //    idx--
+      // }
 
       let min = Math.max(0, idx - count / 2)
       let max = Math.min(idx + count / 2, this.gCodeLines.length - 1)

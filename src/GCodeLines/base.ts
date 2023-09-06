@@ -1,6 +1,13 @@
 import ProcessorProperties from '../processorproperties'
 
-//C = Comment M=Move A=Arc
+/*
+C = Comment
+A = Arc Move
+L = Linear Move
+M = MCode Command
+G = GCode Command
+
+*/
 
 export default abstract class Base {
    line: string = ''

@@ -114,6 +114,9 @@ function toggleIncrement() {
       }, 100)
    }
 }
+function lineClicked(props: any[]) {
+   filePos.value = props[0]
+}
 </script>
 
 <template>
@@ -149,6 +152,8 @@ function toggleIncrement() {
             :line-number="l.lineNumber"
             :line-type="l.type"
             :focus="l.focus"
+            :file-position="l.filePosition"
+            @selected="lineClicked"
          ></GCodeLine>
       </div>
       <v-slider v-model="filePos" class="slider-pos" :min="start" :max="end" :step="1"></v-slider>
@@ -198,7 +203,6 @@ header {
    top: 5px;
    left: 5px;
    z-index: 11;
-   background-color: #000000aa;
 }
 
 .reset {
@@ -245,6 +249,5 @@ header {
    left: 10px;
    overflow: none;
    z-index: 11;
-   pointer-events: none;
 }
 </style>

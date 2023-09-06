@@ -1,5 +1,5 @@
 <template>
-   <div class="gcode-line" :class="{ focused: focus }">
+   <div class="gcode-line prevent-select" :class="{ focused: focus }" @click.prevent="lineClicked">
       <span :style="{ borderRightColor: background }" class="line-number">{{ lineNumber }}</span>
       <span class="line-content">{{ line }}</span>
    </div>
@@ -13,6 +13,7 @@ interface Props {
    line?: string
    lineType?: string
    focus?: boolean
+   filePosition?: number
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -20,19 +21,27 @@ const props = withDefaults(defineProps<Props>(), {
    line: '',
    lineType: '',
    focus: false,
+   filePosition: 0,
 })
+
+const emit = defineEmits(['selected'])
+
+function lineClicked() {
+   emit('selected', [props.filePosition])
+}
 
 const background = computed(() => {
    switch (props.lineType) {
-      case 'G':
-         return '#00ff00aa'
+      case 'C':
+         return '#00aebd'
+      case 'A':
+         return '#ffc425'
+      case 'L':
+         return '#f3773f'
       case 'M':
-         return '#ff0000aa'
-      case 'T':
-         return '#0000ffaa'
-      case 'C': {
-         return '#ffa500aa'
-      }
+         return '#00b159'
+      case 'G':
+         return '#d11141'
       default:
          return '#000000'
    }
@@ -44,8 +53,15 @@ const background = computed(() => {
    border: 1px solid #888888;
    width: 400px;
    font-size: 16px;
+   background-color: #000000aa;
+   word-wrap: break-word;
+   cursor: pointer;
 }
-
+.prevent-select {
+   -webkit-user-select: none; /* Safari */
+   -ms-user-select: none; /* IE 10 and IE 11 */
+   user-select: none; /* Standard syntax */
+}
 .focused {
    border-color: greenyellow;
 }
@@ -53,7 +69,8 @@ const background = computed(() => {
 .line-number {
    padding-right: 20px;
    border-right-width: 8px;
-   border-right-style: solid;
+   border-right-style: groove;
+
    margin-right: 5px;
 }
 

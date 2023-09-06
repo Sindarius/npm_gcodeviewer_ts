@@ -20,7 +20,7 @@ export class MoveData {
 }
 
 export default class Move extends Base {
-   type = 'M'
+   type = 'L'
    tool: number = 0
    start: number[] = [0, 0, 0]
    end: number[] = [0, 0, 0]
