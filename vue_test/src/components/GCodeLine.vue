@@ -1,5 +1,5 @@
 <template>
-   <div class="gcode-line prevent-select" :class="{ focused: focus }" @click.prevent="lineClicked">
+   <div class="gcode-line prevent-select" :class="{ focused: focus }" @click.prevent="lineClicked" :title="line">
       <span :style="{ borderRightColor: background }" class="line-number">{{ `${lineNumber} : ${filePosition}` }}</span>
       <span class="line-content">{{ line }}</span>
    </div>
@@ -52,12 +52,16 @@ const background = computed(() => {
 
 <style scoped>
 .gcode-line {
-   border: 1px solid #888888;
-   width: 400px;
-   font-size: 16px;
-   background-color: #000000aa;
-   word-wrap: break-word;
    cursor: pointer;
+   border: 1px solid #888888;
+   width: 450px;
+   max-width: 450px;
+   font-size: 16px;
+   height: 30px;
+   background-color: #000000aa;
+   text-overflow: clip;
+   white-space: nowrap;
+   overflow: hidden;
 }
 .prevent-select {
    -webkit-user-select: none; /* Safari */
