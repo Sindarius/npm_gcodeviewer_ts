@@ -5,6 +5,7 @@ import TheWelcome from './components/TheWelcome.vue'
 import GCodeLine from './components/GCodeLine.vue'
 import Viewer_Proxy from 'test'
 import { ref, onMounted, onUnmounted, reactive, watch } from 'vue'
+import debounce from 'lodash.debounce'
 
 let viewer: Viewer | null = null
 const viewercanvas = ref(null)
@@ -42,6 +43,7 @@ onMounted(() => {
             case 'getgcodes':
                lines.value.length = 0
                lines.value.push(...e.lines)
+               lineNumber = lines.value.filter((l) => l.focus)[0].lineNumber
                break
          }
       }
@@ -85,8 +87,14 @@ watch(renderMode, (newVal, oldVal) => {
 
 watch(filePos, (newVal, oldVal) => {
    viewer.updateFilePosition(newVal)
-   viewer.getGCodes(filePos.value, 21)
 })
+
+watch(
+   filePos,
+   debounce((newVal) => {
+      viewer.getGCodes(filePos.value, 21)
+   }, 10),
+)
 
 function reset() {
    viewer.reset()
@@ -102,6 +110,7 @@ function filePosInput() {
 }
 
 let timeOutId = -1
+let lineNumber = 0
 function toggleIncrement() {
    if (timeOutId > 0) {
       window.clearInterval(timeOutId)
@@ -110,8 +119,9 @@ function toggleIncrement() {
    } else {
       playing.value = 'mdi-stop'
       timeOutId = window.setInterval(() => {
-         filePos.value = Number(filePos.value) + 20
-      }, 100)
+         //viewer.goToLineNumber(lineNumber++)
+         filePos.value = Number(filePos.value) + 200
+      }, 20)
    }
 }
 function lineClicked(props: any[]) {
@@ -150,7 +160,7 @@ function lineClicked(props: any[]) {
             :key="l"
             :line="l.line"
             :line-number="l.lineNumber"
-            :line-type="l.type"
+            :line-type="l.lineType"
             :focus="l.focus"
             :file-position="l.filePosition"
             @selected="lineClicked"

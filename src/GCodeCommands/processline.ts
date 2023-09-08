@@ -36,6 +36,7 @@ export function ProcessLine(props: ProcessorProperties, line: string): Base {
          result = GCodeCommands.g90(props, line)
          break
       case 'G91':
+         result = GCodeCommands.g91(props, line)
          break
       default:
          if (line.startsWith('T')) {
@@ -47,10 +48,10 @@ export function ProcessLine(props: ProcessorProperties, line: string): Base {
          break
    }
 
-   if (result && props.firstGCodeByte == 0 && result.type == 'L') {
+   if (result && props.firstGCodeByte == 0 && result.lineType == 'L') {
       props.firstGCodeByte = result.filePosition
    }
-   if (result && result.type == 'L') {
+   if (result && result.lineType == 'L') {
       props.lastGCodeByte = result.filePosition
    }
 

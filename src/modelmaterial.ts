@@ -18,6 +18,7 @@ export default class ModelMaterial {
       //this.material.alpha = 0.9
 
       this.material.AddAttribute('filePosition')
+      this.material.AddAttribute('filePositionEnd')
       this.material.AddAttribute('pickColor')
       this.material.AddAttribute('tool')
       this.material.AddAttribute('feedRate')
@@ -29,23 +30,27 @@ export default class ModelMaterial {
       this.material.AddUniform('focusedPickColor', 'vec3', [0, 0, 0])
       this.material.AddUniform('minFeedRate', 'float', 0)
       this.material.AddUniform('maxFeedRate', 'float', 0)
+      this.material.AddUniform('utime', 'float', 0)
 
       this.material.Vertex_Definitions(`
       attribute float filePosition;
       attribute vec3 pickColor;
       attribute float tool;
       attribute float feedRate;
-
+      attribute float filePositionEnd;
       
-      flat out float fShow;
+      flat out float fFilePosition;
+      flat out float fFilePositionEnd;
       flat out vec3 vPickColor;
       flat out float fTool;
       flat out vec3 vFocusedPickColor;
       flat out float fFeedRate;
 
+
       `)
       this.material.Vertex_MainBegin(`
-      fShow = currentPosition - filePosition;
+      fFilePosition = filePosition;
+      fFilePositionEnd = filePositionEnd;
       vPickColor = pickColor;
       fTool = floor(tool);
       vFocusedPickColor = focusedPickColor;
@@ -53,7 +58,8 @@ export default class ModelMaterial {
       `)
 
       this.material.Fragment_Definitions(`
-      flat in float fShow;
+      flat in float fFilePosition;
+      flat in float fFilePositionEnd;
       flat in vec3 vPickColor;
       flat in float fTool;
       flat in vec3 vFocusedPickColor;
@@ -76,21 +82,35 @@ export default class ModelMaterial {
                break;
          }
 
-         if(focusedPickColor == vPickColor) {
+         if(focusedPickColor == vPickColor && !(currentPosition >= fFilePosition && currentPosition <= fFilePositionEnd)) {
             diffuseColor = vec3(1, 1, 1) - diffuseColor.rgb;
          }
          else
          {
-            if (fShow >= 0.0f && fShow < animationLength) 
+            float fShow = currentPosition - fFilePosition;
+            if (fShow >= 0.0  && fShow < animationLength) 
             { 
+               if(currentPosition < fFilePositionEnd){
+                 // float animation = smoothstep(0.0, 1.0, fract(utime / 50.0));
+                  float animation = sin(2.0 * 3.1415 * utime / 1000.0) * 0.5 + 0.5;
+                  diffuseColor = mix(vec3(0, 0, 1), vec3(0,1,0), animation);
+               }
+               else {
                diffuseColor = mix(vec3(1, 1, 1) - diffuseColor.rgb, diffuseColor.rgb, fShow / animationLength);
+               }
             }
-            else if (fShow < 0.0f)
+            else if(fShow < 0.0)
             {
                discard;
             }
          }
       `)
+
+      var time = 0
+      this.material.onBindObservable.add(() => {
+         time += this.scene.getEngine().getDeltaTime()
+         this.material.getEffect()?.setFloat('utime', time)
+      })
    }
 
    updateRenderMode(mode: number) {

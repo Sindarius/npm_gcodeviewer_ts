@@ -20,7 +20,7 @@ export default function (props: Props, line: string): Base {
       let token = tokens[idx]
       switch (token[0]) {
          case 'G':
-            if (token == 'G53') forceAbsolute = truelet
+            if (token == 'G53') forceAbsolute = true
             if (token == 'G1' || token == 'G01') {
                //move.extruding = true
                props.currentTool.color.toArray(move.color)
@@ -67,6 +67,10 @@ export default function (props: Props, line: string): Base {
             if (move.extruding) props.CurrentFeedRate = Number(token.substring(1))
             break
       }
+   }
+
+   if (!move.extruding) {
+      move.lineType = 'T'
    }
 
    move.feedRate = props.CurrentFeedRate

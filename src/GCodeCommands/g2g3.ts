@@ -1,87 +1,61 @@
-import { Move, Base } from '../GCodeLines'
+import { ArcMove, Base, Move } from '../GCodeLines'
 import Props from '../processorproperties'
 import { doArc } from '../util'
+import { Vector3 } from '@babylonjs/core/Maths/math.vector'
 
 const tokenList = /(?=[GXYZIJKFRE])/
 
 //Reminder Add G53 check
 
 export default function (props: Props, line: string): Base {
-   let move = new Move(props, line)
+   let move = new ArcMove(props, line)
+
+   move.feedRate = props.CurrentFeedRate
 
    let tokens = line.split(tokenList)
-   let extruding = line.indexOf('E') > 0 //|| this.g1AsExtrusion //Treat as an extrusion in cnc mode
-   let cw = tokens.filter((t) => t === 'G2' || t === 'G02')
-   let arcResult = { position: this.currentPosition.clone(), points: [] }
+
+   move.extruding = line.indexOf('E') > 0 //|| this.g1AsExtrusion //Treat as an extrusion in cnc mode
+
+   // let cw = tokens.filter((t) => t === 'G2' || t === 'G02')
+
+   let arcResult = {
+      position: { x: props.currentPosition.x, y: props.currentPosition.y, z: props.currentPosition.z },
+      points: [],
+   }
+
    try {
       arcResult = doArc(
          tokens,
-         this.currentPosition,
-         !this.absolute,
+         props.currentPosition,
+         !props.absolute,
          0.1,
-         this.fixRadius,
-         this.arcPlane,
-         this.workplaceOffsets[this.currentWorkplace],
+         props.fixRadius,
+         props.arcPlane,
+         props.currentWorkplace,
       )
    } catch (ex) {
       console.error(`Arc Error`, ex)
    }
-   let curPt = this.currentPosition.clone()
+   let curPt = []
+   props.currentPosition.toArray(curPt)
+
    arcResult.points.forEach((point, idx) => {
-      const line = new gcodeLine()
-      line.tool = this.currentTool
-      line.gcodeLineNumber = lineNumber
-      line.gcodeFilePosition = filePosition
-      line.feedRate = this.currentFeedRate
-      line.isPerimeter = this.slicer.isPerimeter()
-      if (this.g1AsExtrusion) {
-         line.layerHeight = 1 // this.tools[this.currentTool].diameter;
-      } else {
-         line.layerHeight = this.currentLayerHeight - this.previousLayerHeight
-      }
+      const line = new Move(props, move.line)
+      line.tool = props.currentTool.toolNumber
+      line.lineNumber = move.lineNumber
+      line.filePosition = move.filePosition
+      line.feedRate = props.CurrentFeedRate
 
-      line.start = curPt.clone()
-      line.end = new Vector3(point.x, point.y, point.z)
-
-      line.extruding = extruding
-
-      if (extruding) {
-         line.color = this.currentColor.clone()
-      } else {
-         line.color = new Color4(1, 0, 0, 1)
-      }
-
-      if (this.debug) {
-         line.color = cw ? new Color4(0, 1, 1, 1) : new Color4(1, 1, 0, 1)
-         if (idx === 0) {
-            line.color = new Color4(0, 1, 0, 1)
-         }
-      }
-      curPt = line.end.clone()
-
-      if (this.debug) {
-         console.log(line)
-      }
-
-      if (!renderLine) {
-         return
-      }
-
-      this.renderedLines.push(line)
-      if (line.extruding) {
-         this.lines[this.linesIndex++] = line
-      } else {
-         this.travels.push(line)
-      }
+      line.start = [curPt[0], curPt[1], curPt[2]]
+      line.end = [point.x, point.y, point.z]
+      line.extruding = move.extruding
+      curPt = line.end
+      move.segments.push(line)
    })
 
    //Last point to currentposition
-   this.currentPosition = new Vector3(curPt.x, curPt.y, curPt.z)
-
-   if (this.currentPosition.y > this.currentLayerHeight && !this.isSupport) {
-      this.previousLayerHeight = this.currentLayerHeight
-      this.currentLayerHeight = this.currentPosition.y
-   }
+   props.currentPosition = Vector3.FromArray(curPt)
+   props.totalRenderedSegments += move.segments.length
 
    return move
 }

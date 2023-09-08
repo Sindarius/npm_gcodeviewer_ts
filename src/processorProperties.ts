@@ -31,8 +31,8 @@ export default class ProcessorProperties {
    tools: Tool[] = []
    currentTool: Tool
    currentPosition: Vector3 = new Vector3(0, 0, 0)
-   currentFeedRate: number = 0
-   maxFeedRate: number = 0
+   currentFeedRate: number = 1
+   maxFeedRate: number = 1
    minFeedRate: number = 999999999
    progressColor: Color4 = new Color4(0, 1, 0, 1)
    progressAnimation: boolean = true //Formerly known as "renderAnimation"
@@ -47,6 +47,9 @@ export default class ProcessorProperties {
    absolute: boolean = false
    firmwareRetraction: boolean = false
    units = Units.millimeters
+   totalRenderedSegments: number = 0
+   fixRadius: boolean = false // Used to fix a radius on an arc if it's too small. Some CNC processors "fix" G2/G3 for you
+   arcPlane: ArcPlane = ArcPlane.XY // Used to determine the plane of an arc
 
    //Used for belt processing
    currentZ = 0

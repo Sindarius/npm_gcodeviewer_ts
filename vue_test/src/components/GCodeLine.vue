@@ -1,6 +1,6 @@
 <template>
    <div class="gcode-line prevent-select" :class="{ focused: focus }" @click.prevent="lineClicked">
-      <span :style="{ borderRightColor: background }" class="line-number">{{ lineNumber }}</span>
+      <span :style="{ borderRightColor: background }" class="line-number">{{ `${lineNumber} : ${filePosition}` }}</span>
       <span class="line-content">{{ line }}</span>
    </div>
 </template>
@@ -40,8 +40,10 @@ const background = computed(() => {
          return '#f3773f'
       case 'M':
          return '#00b159'
-      case 'G':
+      case 'T':
          return '#d11141'
+      case 'G':
+         return '#888888'
       default:
          return '#000000'
    }
