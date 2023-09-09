@@ -217,6 +217,14 @@ export default class ViewerProxy {
       this.webWorker.postMessage({ type: 'gotolinenumber', lineNumber: lineNumber })
    }
 
+   setAlphaMode(mode: boolean): void {
+      this.webWorker.postMessage({ type: 'setalphamode', mode: mode })
+   }
+
+   setProgressMode(mode: boolean): void {
+      this.webWorker.postMessage({ type: 'setprogressmode', mode: mode })
+   }
+
    //Used to clone the event properties out of an object so they can be sent to worker
    cloneEvent(event) {
       let cloneFieldList = event.constructor.name === 'KeyboardEvent' ? keyboardEventFields : mouseEventFields

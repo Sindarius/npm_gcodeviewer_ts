@@ -11,8 +11,7 @@ import GPUPicker from './gpupicker'
 import { colorToNum, delay, binarySearchClosest } from './util'
 import ModelMaterial from './modelmaterial'
 import { MoveData } from './GCodeLines/move'
-import { InstancedLinesMesh } from '@babylonjs/core'
-import { Color4 } from '@babylonjs/core/Maths/math.color'
+import { VertexBuffer } from '@babylonjs/core/Buffers/buffer'
 
 export default class Processor {
    gCodeLines: Base[] = []
@@ -22,7 +21,7 @@ export default class Processor {
    breakPoint = 160000000
    gpuPicker: GPUPicker
    worker: Worker
-   modelMaterial: ModelMaterial
+   modelMaterial: ModelMaterial[]
    filePosition: number = 0
    maxIndex: number = 0
    focusedColorId = 0
@@ -61,14 +60,16 @@ export default class Processor {
                lineNumber: o.lineNumber,
                filePosition: o.filePosition,
             })
-            this.modelMaterial.setPickColor(colorId)
+            this.modelMaterial.forEach((m) => m.setPickColor(colorId))
          }
       }
 
-      this.modelMaterial.setMaxFeedRate(this.processorProperties.maxFeedRate)
-      this.modelMaterial.setMinFeedRate(this.processorProperties.minFeedRate)
+      this.modelMaterial.forEach((m) => m.setMaxFeedRate(this.processorProperties.maxFeedRate))
+      this.modelMaterial.forEach((m) => m.setMinFeedRate(this.processorProperties.minFeedRate))
 
-      this.modelMaterial.updateCurrentFilePosition(this.gCodeLines[this.gCodeLines.length - 1].filePosition) //Set it to the end
+      this.modelMaterial.forEach((m) =>
+         m.updateCurrentFilePosition(this.gCodeLines[this.gCodeLines.length - 1].filePosition),
+      ) //Set it to the end
       this.gpuPicker.updateCurrentPosition(this.gCodeLines[this.gCodeLines.length - 1].filePosition)
 
       this.worker.postMessage({
@@ -79,14 +80,20 @@ export default class Processor {
    }
 
    buildMaterial() {
-      if (!this.modelMaterial) this.modelMaterial = new ModelMaterial(this.scene)
-      this.modelMaterial.updateCurrentFilePosition(this.filePosition)
-      this.modelMaterial.updateToolColors(this.processorProperties.buildToolFloat32Array())
+      if (!this.modelMaterial) {
+         this.modelMaterial = [
+            new ModelMaterial(this.scene),
+            new ModelMaterial(this.scene),
+            new ModelMaterial(this.scene),
+         ]
+      }
+      this.modelMaterial.forEach((m) => {
+         m.updateCurrentFilePosition(this.filePosition)
+         m.updateToolColors(this.processorProperties.buildToolFloat32Array())
+      })
    }
 
    async testRenderScene() {
-      let material = this.modelMaterial.material
-
       this.scene.meshes.forEach((m) => {
          m.dispose()
       })
@@ -124,72 +131,33 @@ export default class Processor {
          let sl = renderlines.slice(idx * this.breakPoint, (idx + 1) * this.breakPoint)
 
          //Solid test
-         let rl = this.testBuildMesh(sl, material)
+         let rl = this.testBuildMesh(sl)
          //Line Test
          //let rl = this.testLinesMesh(sl, material)
 
-         this.meshes.push(rl)
+         this.meshes.push(...rl)
          //if (idx % 2 == 0) {
          await delay(0.0001)
          //}
       }
 
       //Now that everything is loaded lets add the meshes to the gpu picker
-      for (let m in this.meshes) {
-         let mesh = this.meshes[m]
-         this.gpuPicker.addToRenderList(mesh)
-      }
+      //for (let m in this.meshes) {
+      //let mesh = this.meshes[m]
+      this.gpuPicker.addToRenderList(this.meshes[0]) //use the box mesh
+      //}
    }
 
-   testLinesMesh(renderlines, material): Mesh {
-      this.maxIndex = this.processorProperties.totalRenderedSegments
-      let box = MeshBuilder.CreateLines('box2', { points: [new Vector3(-1, 0, 0), new Vector3(1, 0, 0)] }, this.scene)
-
-      //let matrixData = new Float32Array(16 * this.maxIndex)
-      //let colorData = new Float32Array(4 * this.maxIndex)
-      // let pickData = new Float32Array(3 * this.maxIndex)
-      // let filePositionData = new Float32Array(this.maxIndex)
-      // let fileEndPositionData = new Float32Array(this.maxIndex)
-      // let toolData = new Float32Array(this.maxIndex)
-      // let feedRate = new Float32Array(this.maxIndex)
-
-      box.material = material
-      box.name = `LineMesh`
-      box.registerInstancedBuffer('color', 4)
-      //box.registerInstancedBuffer('pickColor', 4)
-      //box.registerInstancedBuffer('filePosition', 1)
-      //box.registerInstancedBuffer('filePositionEnd', 1)
-      //box.registerInstancedBuffer('tool', 4)
-      //box.registerInstancedBuffer('feedRate', 4)
-
-      let segIdx = 0
-      for (let idx = 0; idx < renderlines.length; idx++) {
-         let line = renderlines[idx] as Base
-         if (line.lineType === 'L') {
-            let l = line as Move
-            let lineData = l.renderLine(0.4, 0.2)
-            var inst = box.createInstance('idx')
-            let m = inst.getWorldMatrix()
-            m.copyFrom(lineData.Matrix)
-            inst.instancedBuffers.color = lineData.Color
-
-            this.gCodeLines[line.lineNumber - 1] = new Move_Thin(this.processorProperties, line as Move, box, idx) //remove unnecessary information now that we have the matrix
-            segIdx++
-         } else if (line.lineType === 'A') {
-            let arc = line as ArcMove
-            //run all the segments
-            for (let seg in arc.segments) {
-               let segment = arc.segments[seg] as Move
-               let lineData = segment.renderLine(0.4, 0.2)
-
-               segIdx++
-            }
-            this.gCodeLines[line.lineNumber - 1] = new Move_Thin(this.processorProperties, line as ArcMove, box, idx) //remove unnecessary information now that we have the matrix
-         }
-      }
+   //Experimental -- may not work
+   mode = 0
+   setMeshGeometry() {
+      console.log(this.meshes)
+      this.mode = this.mode + 1 > 2 ? 0 : this.mode + 1
+      this.meshes.forEach((m) => m.setEnabled(false))
+      this.meshes[this.mode].setEnabled(true)
    }
 
-   testBuildMesh(renderlines, material): Mesh {
+   testBuildMesh(renderlines): Mesh[] {
       this.maxIndex = this.processorProperties.totalRenderedSegments
       console.log('Building Mesh', renderlines.length)
 
@@ -199,19 +167,20 @@ export default class Processor {
       box.bakeCurrentTransformIntoVertices()
       box.convertToUnIndexedMesh()
 
-      // let box = MeshBuilder.CreateCylinder('box', { height: 1, diameter: 1 }, this.scene)
-      // box.locallyTranslate(new Vector3(0, 0, 0))
-      // box.rotate(new Vector3(0, 0, 1), Math.PI / 2, Space.WORLD)
-      // box.bakeCurrentTransformIntoVertices()
+      let cyl = MeshBuilder.CreateCylinder('cyl', { height: 1, diameter: 1 }, this.scene)
+      cyl.locallyTranslate(new Vector3(0, 0, 0))
+      cyl.rotate(new Vector3(0, 0, 1), Math.PI / 2, Space.WORLD)
+      cyl.bakeCurrentTransformIntoVertices()
 
-      // let box = MeshBuilder.CreateLines(
-      //    'box2',
-      //    {
-      //       points: [new Vector3(-0.5, 0, 0), new Vector3(0.5, 0, 0)],
-      //    },
-      //    this.scene,
-      // )
+      let line = MeshBuilder.CreateLines(
+         'line',
+         {
+            points: [new Vector3(-0.5, 0, 0), new Vector3(0.5, 0, 0)],
+         },
+         this.scene,
+      )
 
+      console.log(this.maxIndex)
       let matrixData = new Float32Array(16 * this.maxIndex)
       let colorData = new Float32Array(4 * this.maxIndex)
       let pickData = new Float32Array(3 * this.maxIndex)
@@ -220,7 +189,10 @@ export default class Processor {
       let toolData = new Float32Array(this.maxIndex)
       let feedRate = new Float32Array(this.maxIndex)
 
-      box.material = material
+      box.material = this.modelMaterial[0].material
+      cyl.material = this.modelMaterial[1].material
+      line.material = this.modelMaterial[2].material
+      this.modelMaterial[2].setLineMesh(true)
 
       box.name = `Mesh${this.meshes.length}}`
 
@@ -238,7 +210,7 @@ export default class Processor {
             //run all the segments
             for (let seg in arc.segments) {
                let segment = arc.segments[seg] as Move
-               let lineData = segment.renderLine(0.4, 0.2)
+               let lineData = segment.renderLine(0.4, 0.3)
                buildBuffers(lineData, arc, segIdx)
                segIdx++
             }
@@ -246,17 +218,26 @@ export default class Processor {
          }
       }
 
-      box.thinInstanceSetBuffer('matrix', matrixData, 16, true)
-      box.doNotSyncBoundingInfo = true
-      box.thinInstanceRefreshBoundingInfo(false)
-      box.thinInstanceSetBuffer('color', colorData, 4, true)
-      box.thinInstanceSetBuffer('pickColor', pickData, 3, true) //this holds the color ids for the mesh
-      box.thinInstanceSetBuffer('filePosition', filePositionData, 1, true)
-      box.thinInstanceSetBuffer('filePositionEnd', fileEndPositionData, 1, true)
+      copyBuffers(box)
+      copyBuffers(cyl)
+      cyl.setEnabled(false)
+      copyBuffers(line)
+      line.setEnabled(false)
 
-      box.thinInstanceSetBuffer('tool', toolData, 1, true)
-      box.thinInstanceSetBuffer('feedRate', feedRate, 1, true)
-      return box
+      return [box, cyl, line]
+
+      function copyBuffers(box) {
+         let matrixDataClone = Float32Array.from(matrixData) //new Float32Array(matrixData)
+         box.thinInstanceSetBuffer('matrix', matrixDataClone, 16, true)
+         box.doNotSyncBoundingInfo = true
+         box.thinInstanceRefreshBoundingInfo(false)
+         box.thinInstanceSetBuffer('color', colorData, 4, true)
+         box.thinInstanceSetBuffer('pickColor', pickData, 3, true) //this holds the color ids for the mesh
+         box.thinInstanceSetBuffer('filePosition', filePositionData, 1, true)
+         box.thinInstanceSetBuffer('filePositionEnd', fileEndPositionData, 1, true)
+         box.thinInstanceSetBuffer('tool', toolData, 1, true)
+         box.thinInstanceSetBuffer('feedRate', feedRate, 1, true)
+      }
 
       //Inner function with access to buffers
       function buildBuffers(lineData: MoveData, line: ArcMove | Move, idx: number) {
@@ -309,7 +290,7 @@ export default class Processor {
    }
 
    updateFilePosition(position: number) {
-      this.modelMaterial.updateCurrentFilePosition(position) //Set it to the end
+      this.modelMaterial.forEach((m) => m.updateCurrentFilePosition(position)) //Set it to the end
       this.gpuPicker.updateCurrentPosition(position)
    }
 

@@ -46,6 +46,13 @@ export default class GPUPicker {
          },
       )
 
+      let isEnabled = false
+      this.renderTarget.onBeforeRenderObservable.add(() => {
+         if (this.scene.meshes[0]) {
+            isEnabled = this.scene.meshes[0].isEnabled()
+            this.scene.meshes[0].setEnabled(true)
+         }
+      })
       this.renderTarget.onAfterRenderObservable.add(() => {
          const x = Math.round(this.scene.pointerX)
          const y = this.height - Math.round(this.scene.pointerY)
@@ -60,6 +67,9 @@ export default class GPUPicker {
 
          if (this.colorTestCallBack) {
             this.colorTestCallBack(pixels)
+         }
+         if (this.scene.meshes[0]) {
+            if (!isEnabled) this.scene.meshes[0].setEnabled(false)
          }
       })
    }

@@ -18,6 +18,7 @@ import '@babylonjs/core/Engines/Extensions/engine.query'
 import '@babylonjs/core/Culling/ray'
 import GPUPicker from './gpupicker'
 import { PointerEventTypes } from '@babylonjs/core/Events/pointerEvents'
+import '@babylonjs/core/Rendering/'
 
 let ColorID = [0, 0, 0]
 export default class Viewer {
@@ -105,10 +106,13 @@ export default class Viewer {
       this.engine.enableOfflineSupport = false
 
       this.scene = new Scene(this.engine)
-      this.scene.clearColor = new Color4(0.5, 0.5, 0.5, 1)
-      this.scene.doNotHandleCursors = true //We can't make cursor changes in the worker thread
-      this.scene.performancePriority = ScenePerformancePriority.Intermediate //.Aggressive
+      this.scene.clearColor = new Color4(0.3, 0.3, 0.3, 1)
+      //this.scene.useOrderIndependentTransparency = true
+      //this.scene.depthPeelingRenderer.passCount = 2
 
+      this.scene.doNotHandleCursors = true //We can't make cursor changes in the worker thread
+      //this.scene.performancePriority = ScenePerformancePriority.Intermediate //.Aggressive
+      this.scene.autoClear = true
       this.processor.scene = this.scene
       this.processor.worker = this.worker
       this.processor.gpuPicker = new GPUPicker(

@@ -28,7 +28,7 @@ export default function (props: Props, line: string): Base {
          tokens,
          props.currentPosition,
          !props.absolute,
-         0.1,
+         0.5,
          props.fixRadius,
          props.arcPlane,
          props.currentWorkplace,

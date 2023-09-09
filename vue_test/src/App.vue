@@ -16,6 +16,8 @@ const playing = ref('mdi-play')
 const start = ref(0)
 const end = ref(0)
 const lines = ref<string[]>([])
+const alpha = ref(false)
+const progressMode = ref(false)
 
 const renderModes = [
    { label: 'Default', value: 0 },
@@ -85,6 +87,10 @@ watch(renderMode, (newVal, oldVal) => {
    viewer.setRenderMode(newVal)
 })
 
+watch(progressMode, (newVal, oldVal) => {
+   viewer.setProgressMode(newVal)
+})
+
 watch(filePos, (newVal, oldVal) => {
    viewer.updateFilePosition(newVal)
 })
@@ -95,6 +101,10 @@ watch(
       viewer.getGCodes(filePos.value, 21)
    }, 10),
 )
+
+watch(alpha, (newVal) => {
+   viewer.setAlphaMode(newVal)
+})
 
 function reset() {
    viewer.reset()
@@ -167,6 +177,8 @@ function lineClicked(props: any[]) {
          ></GCodeLine>
       </div>
       <v-slider v-model="filePos" class="slider-pos" :min="start" :max="end" :step="1"></v-slider>
+      <v-checkbox class="alpha" v-model="alpha">Set Alpha</v-checkbox>
+      <v-checkbox class="progress" v-model="progressMode">Progress Mode</v-checkbox>
    </header>
 
    <main></main>
@@ -258,6 +270,20 @@ header {
    bottom: 30px;
    left: 10px;
    overflow: none;
+   z-index: 11;
+}
+
+.alpha {
+   position: absolute;
+   top: 10px;
+   right: 400px;
+   z-index: 11;
+}
+
+.progress {
+   position: absolute;
+   top: 10px;
+   right: 500px;
    z-index: 11;
 }
 </style>
