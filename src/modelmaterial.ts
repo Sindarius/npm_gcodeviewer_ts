@@ -45,9 +45,8 @@ export default class ModelMaterial {
       flat out float fTool;
       flat out vec3 vFocusedPickColor;
       flat out float fFeedRate;
-
-
       `)
+
       this.material.Vertex_MainBegin(`
       fFilePosition = filePosition;
       fFilePositionEnd = filePositionEnd;
@@ -68,10 +67,16 @@ export default class ModelMaterial {
 
       this.material.Fragment_Custom_Diffuse(`
 
+      
          switch(renderMode){
             case 0: break; // use default diffuse color;
-            case 1:                
-               diffuseColor = toolColors[int(fTool)].rgb;
+            case 1:
+               if(fTool < 255.0) {                
+                  diffuseColor = toolColors[int(fTool)].rgb;
+               }
+               else{
+                  diffuseColor = vec3(1,0,0); //Travel Color Make Configurable at some point
+               }
              break;
             case 2:
                float m = (fFeedRate - minFeedRate) / (maxFeedRate - minFeedRate);
@@ -82,12 +87,25 @@ export default class ModelMaterial {
                break;
          }
 
+         float fShow = currentPosition - fFilePosition;
+
          if(focusedPickColor == vPickColor && !(currentPosition >= fFilePosition && currentPosition <= fFilePositionEnd)) {
             diffuseColor = vec3(1, 1, 1) - diffuseColor.rgb;
          }
+         else if (fTool >= 254.0) 
+         {
+            if(fShow >= 0.0 && fShow < animationLength / 2.0) 
+            {
+                  
+                  diffuseColor = mix(vec3(1.0, 0.0, 0.0), vec3(0.5,0.0,0.0), fShow / animationLength / 2.0);
+            }
+            else
+            {
+               discard;
+            }
+         }
          else
          {
-            float fShow = currentPosition - fFilePosition;
             if (fShow >= 0.0  && fShow < animationLength) 
             { 
                if(currentPosition < fFilePositionEnd){
@@ -95,8 +113,9 @@ export default class ModelMaterial {
                   float animation = sin(2.0 * 3.1415 * utime / 1000.0) * 0.5 + 0.5;
                   diffuseColor = mix(vec3(0, 0, 1), vec3(0,1,0), animation);
                }
-               else {
-               diffuseColor = mix(vec3(1, 1, 1) - diffuseColor.rgb, diffuseColor.rgb, fShow / animationLength);
+               else 
+               {
+                  diffuseColor = mix(vec3(1, 1, 1) - diffuseColor.rgb, diffuseColor.rgb, fShow / animationLength);
                }
             }
             else if(fShow < 0.0)

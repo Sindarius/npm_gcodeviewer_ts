@@ -33,7 +33,7 @@ export default class GPUPicker {
             fragmentSource: fragmentShader,
          },
          {
-            attributes: ['position', 'pickColor', 'filePosition'],
+            attributes: ['position', 'pickColor', 'filePosition', 'tool'],
             uniforms: [
                'world',
                'worldView',
@@ -103,6 +103,7 @@ precision highp float;
         attribute vec3 position;
          attribute vec3 pickColor;
          attribute float filePosition;
+         attribute float tool;
 
         // Uniforms
         uniform mat4 viewProjection;
@@ -110,8 +111,10 @@ precision highp float;
 
 
         //to fragment
-        varying vec4 vPickColor;
-        varying float vShow;
+
+        flat out vec4 vPickColor;
+        flat out float vShow;
+        flat out float fTool;
 
 #include<instancesDeclaration>
 
@@ -121,6 +124,7 @@ void main(void) {
    gl_Position = viewProjection * finalWorld * vec4(position, 1.0);
    vPickColor = vec4(pickColor, 1.0);
    vShow = currentPosition - filePosition;
+   fTool = tool;
 }
 `
 
@@ -139,27 +143,31 @@ precision highp float;
 uniform mat4 u_World;
 uniform mat4 u_ViewProjection;
 uniform vec4 u_color;
-varying vec4 vPickColor;
-varying float vShow;
+
+
+flat in vec4 vPickColor;
+flat in float vShow;
+flat in float fTool;
 
 #include<helperFunctions>
 
-
-
 void main(void) {
-if(vShow < 0.0f){
-  discard;
-}  
-gl_FragColor = vPickColor;
-#ifdef CONVERTTOLINEAR0
-gl_FragColor = toLinearSpace(gl_FragColor);
-#endif
-#ifdef CONVERTTOGAMMA0
-gl_FragColor = toGammaSpace(gl_FragColor);
-#endif
-#if defined(PREPASS)
-gl_FragData[0] = gl_FragColor;
-#endif
-
+   if(vShow < 0.0f || fTool >= 255.0)
+   {
+      discard;
+   }
+   else
+   {
+      gl_FragColor = vPickColor;
+      #ifdef CONVERTTOLINEAR0
+      gl_FragColor = toLinearSpace(gl_FragColor);
+      #endif
+      #ifdef CONVERTTOGAMMA0
+      gl_FragColor = toGammaSpace(gl_FragColor);
+      #endif
+      #if defined(PREPASS)
+      gl_FragData[0] = gl_FragColor;
+      #endif
+   }
 }
 `

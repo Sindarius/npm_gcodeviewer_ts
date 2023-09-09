@@ -19,6 +19,8 @@ export class MoveData {
    Props: any
 }
 
+//Use tool 255 for travels
+
 export default class Move extends Base {
    lineType = 'L'
    tool: number = 0

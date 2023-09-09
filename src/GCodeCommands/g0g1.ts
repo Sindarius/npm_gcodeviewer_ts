@@ -71,6 +71,7 @@ export default function (props: Props, line: string): Base {
 
    if (!move.extruding) {
       move.lineType = 'T'
+      move.tool = 255
    }
 
    move.feedRate = props.CurrentFeedRate

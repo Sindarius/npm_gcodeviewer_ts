@@ -11,7 +11,9 @@ import GPUPicker from './gpupicker'
 import { colorToNum, delay, binarySearchClosest } from './util'
 import ModelMaterial from './modelmaterial'
 import { MoveData } from './GCodeLines/move'
-colorToNum
+import { InstancedLinesMesh } from '@babylonjs/core'
+import { Color4 } from '@babylonjs/core/Maths/math.color'
+
 export default class Processor {
    gCodeLines: Base[] = []
    processorProperties: ProcessorProperties = new ProcessorProperties()
@@ -105,6 +107,9 @@ export default class Processor {
             } else if (this.gCodeLines[idx].lineType === 'A' && this.gCodeLines[idx].extruding) {
                //Arc Move
                renderlines.push(this.gCodeLines[idx])
+            } else if (this.gCodeLines[idx].lineType === 'T') {
+               //Travel
+               renderlines.push(this.gCodeLines[idx])
             } else {
                tossCount++
             }
@@ -117,7 +122,12 @@ export default class Processor {
 
       for (let idx = 0; idx <= lastMod; idx++) {
          let sl = renderlines.slice(idx * this.breakPoint, (idx + 1) * this.breakPoint)
+
+         //Solid test
          let rl = this.testBuildMesh(sl, material)
+         //Line Test
+         //let rl = this.testLinesMesh(sl, material)
+
          this.meshes.push(rl)
          //if (idx % 2 == 0) {
          await delay(0.0001)
@@ -131,19 +141,76 @@ export default class Processor {
       }
    }
 
+   testLinesMesh(renderlines, material): Mesh {
+      this.maxIndex = this.processorProperties.totalRenderedSegments
+      let box = MeshBuilder.CreateLines('box2', { points: [new Vector3(-1, 0, 0), new Vector3(1, 0, 0)] }, this.scene)
+
+      //let matrixData = new Float32Array(16 * this.maxIndex)
+      //let colorData = new Float32Array(4 * this.maxIndex)
+      // let pickData = new Float32Array(3 * this.maxIndex)
+      // let filePositionData = new Float32Array(this.maxIndex)
+      // let fileEndPositionData = new Float32Array(this.maxIndex)
+      // let toolData = new Float32Array(this.maxIndex)
+      // let feedRate = new Float32Array(this.maxIndex)
+
+      box.material = material
+      box.name = `LineMesh`
+      box.registerInstancedBuffer('color', 4)
+      //box.registerInstancedBuffer('pickColor', 4)
+      //box.registerInstancedBuffer('filePosition', 1)
+      //box.registerInstancedBuffer('filePositionEnd', 1)
+      //box.registerInstancedBuffer('tool', 4)
+      //box.registerInstancedBuffer('feedRate', 4)
+
+      let segIdx = 0
+      for (let idx = 0; idx < renderlines.length; idx++) {
+         let line = renderlines[idx] as Base
+         if (line.lineType === 'L') {
+            let l = line as Move
+            let lineData = l.renderLine(0.4, 0.2)
+            var inst = box.createInstance('idx')
+            let m = inst.getWorldMatrix()
+            m.copyFrom(lineData.Matrix)
+            inst.instancedBuffers.color = lineData.Color
+
+            this.gCodeLines[line.lineNumber - 1] = new Move_Thin(this.processorProperties, line as Move, box, idx) //remove unnecessary information now that we have the matrix
+            segIdx++
+         } else if (line.lineType === 'A') {
+            let arc = line as ArcMove
+            //run all the segments
+            for (let seg in arc.segments) {
+               let segment = arc.segments[seg] as Move
+               let lineData = segment.renderLine(0.4, 0.2)
+
+               segIdx++
+            }
+            this.gCodeLines[line.lineNumber - 1] = new Move_Thin(this.processorProperties, line as ArcMove, box, idx) //remove unnecessary information now that we have the matrix
+         }
+      }
+   }
+
    testBuildMesh(renderlines, material): Mesh {
       this.maxIndex = this.processorProperties.totalRenderedSegments
       console.log('Building Mesh', renderlines.length)
-      // let box = MeshBuilder.CreateBox('box2', { width: 1, height: 1, depth: 1 }, this.scene)
-      // box.position = new Vector3(0, 0, 0)
-      // box.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
-      // box.bakeCurrentTransformIntoVertices()
-      // box.convertToUnIndexedMesh()
 
-      let box = MeshBuilder.CreateCylinder('box', { height: 1, diameter: 1 }, this.scene)
-      box.locallyTranslate(new Vector3(0, 0, 0))
-      box.rotate(new Vector3(0, 0, 1), Math.PI / 2, Space.WORLD)
+      let box = MeshBuilder.CreateBox('box2', { width: 1, height: 1, depth: 1 }, this.scene)
+      box.position = new Vector3(0, 0, 0)
+      box.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
       box.bakeCurrentTransformIntoVertices()
+      box.convertToUnIndexedMesh()
+
+      // let box = MeshBuilder.CreateCylinder('box', { height: 1, diameter: 1 }, this.scene)
+      // box.locallyTranslate(new Vector3(0, 0, 0))
+      // box.rotate(new Vector3(0, 0, 1), Math.PI / 2, Space.WORLD)
+      // box.bakeCurrentTransformIntoVertices()
+
+      // let box = MeshBuilder.CreateLines(
+      //    'box2',
+      //    {
+      //       points: [new Vector3(-0.5, 0, 0), new Vector3(0.5, 0, 0)],
+      //    },
+      //    this.scene,
+      // )
 
       let matrixData = new Float32Array(16 * this.maxIndex)
       let colorData = new Float32Array(4 * this.maxIndex)
@@ -160,7 +227,7 @@ export default class Processor {
       let segIdx = 0
       for (let idx = 0; idx < renderlines.length; idx++) {
          let line = renderlines[idx] as Base
-         if (line.lineType === 'L') {
+         if (line.lineType === 'L' || line.lineType === 'T') {
             let l = line as Move
             let lineData = l.renderLine(0.4, 0.2)
             buildBuffers(lineData, l, segIdx)
