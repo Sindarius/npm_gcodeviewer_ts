@@ -190,7 +190,7 @@ export default class ModelMaterial {
       return this.material
    }
 
-   async updateToolColors(toolColors: number[]) {
+   updateToolColors(toolColors: number[]) {
       this.material.onBindObservable.addOnce(() => {
          this.material.getEffect()?.setFloatArray4('toolColors', toolColors)
       })

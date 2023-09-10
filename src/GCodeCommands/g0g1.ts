@@ -24,6 +24,7 @@ export default function (props: Props, line: string): Base {
             if (token == 'G1' || token == 'G01') {
                //move.extruding = true
                props.currentTool.color.toArray(move.color)
+               move.extruding = props.cncMode
             }
             break
          case 'X':

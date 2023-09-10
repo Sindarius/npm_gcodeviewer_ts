@@ -102,36 +102,48 @@ export default class Processor {
 
       const renderlines = []
       let tossCount = 0
+
+      let segmentCount = 0
+      let lastRenderedIdx = 0
+
       for (let idx = 0; idx < this.gCodeLines.length - 1; idx++) {
          try {
             if (this.gCodeLines[idx].lineType === 'L' && this.gCodeLines[idx].extruding) {
                //Regular move
                renderlines.push(this.gCodeLines[idx])
+               segmentCount++
             } else if (this.gCodeLines[idx].lineType === 'A' && this.gCodeLines[idx].extruding) {
                //Arc Move
                renderlines.push(this.gCodeLines[idx])
+               segmentCount += (this.gCodeLines[idx] as ArcMove).segments.length
             } else if (this.gCodeLines[idx].lineType === 'T') {
                //Travel
                renderlines.push(this.gCodeLines[idx])
+               segmentCount++
             } else {
                tossCount++
             }
          } catch (ex) {
             console.log(this.gCodeLines[idx], ex)
          }
+
+         if (segmentCount >= this.breakPoint) {
+            let sl = renderlines.slice(lastRenderedIdx)
+            let rl = this.testBuildMesh(sl, segmentCount)
+            this.meshes.push(...rl)
+            this.gpuPicker.addToRenderList(rl[0]) //use the box mesh for all picking
+            lastRenderedIdx = renderlines.length
+            segmentCount = 0
+         }
       }
 
-      let lastMod = Math.floor(renderlines.length / this.breakPoint)
-
-      let rl = []
-      for (let idx = 0; idx <= lastMod; idx++) {
-         let sl = renderlines.slice(idx * this.breakPoint, (idx + 1) * this.breakPoint)
-         rl = this.testBuildMesh(sl)
+      if (segmentCount > 0) {
+         let sl = renderlines.slice(lastRenderedIdx)
+         let rl = this.testBuildMesh(sl, segmentCount)
          this.meshes.push(...rl)
          await delay(0.0001)
+         this.gpuPicker.addToRenderList(rl[0]) //use the box mesh for all picking
       }
-
-      this.gpuPicker.addToRenderList(rl[0]) //use the box mesh for all picking
    }
 
    // 0 = Box
@@ -140,12 +152,13 @@ export default class Processor {
    setMeshMode(mode) {
       mode = mode > 2 ? 0 : mode
       this.meshes.forEach((m) => m.setEnabled(false))
-      this.meshes[mode].setEnabled(true)
+      for (let idx = mode; idx < this.meshes.length; idx += 3) {
+         this.meshes[idx].setEnabled(true)
+      }
    }
 
-   testBuildMesh(renderlines): Mesh[] {
-      this.maxIndex = this.processorProperties.totalRenderedSegments
-      console.log('Building Mesh', renderlines.length)
+   testBuildMesh(renderlines, segCount): Mesh[] {
+      console.log('Building Mesh', renderlines.length, segCount)
 
       let box = MeshBuilder.CreateBox('box', { width: 1, height: 1, depth: 1 }, this.scene)
       box.position = new Vector3(0, 0, 0)
@@ -166,21 +179,23 @@ export default class Processor {
          this.scene,
       )
 
-      console.log(this.maxIndex)
-      let matrixData = new Float32Array(16 * this.maxIndex)
-      let colorData = new Float32Array(4 * this.maxIndex)
-      let pickData = new Float32Array(3 * this.maxIndex)
-      let filePositionData = new Float32Array(this.maxIndex)
-      let fileEndPositionData = new Float32Array(this.maxIndex)
-      let toolData = new Float32Array(this.maxIndex)
-      let feedRate = new Float32Array(this.maxIndex)
+      let matrixData = new Float32Array(16 * segCount)
+      let colorData = new Float32Array(4 * segCount)
+      let pickData = new Float32Array(3 * segCount)
+      let filePositionData = new Float32Array(segCount)
+      let fileEndPositionData = new Float32Array(segCount)
+      let toolData = new Float32Array(segCount)
+      let feedRate = new Float32Array(segCount)
 
       box.material = this.modelMaterial[0].material
+      box.material.freeze()
       cyl.material = this.modelMaterial[1].material
+      cyl.material.freeze()
       line.material = this.modelMaterial[2].material
+      line.material.freeze()
       this.modelMaterial[2].setLineMesh(true)
 
-      box.name = `Mesh${this.meshes.length}}`
+      //  box.name = `Mesh${this.meshes.length}}`
 
       let segIdx = 0
       for (let idx = 0; idx < renderlines.length; idx++) {
@@ -205,24 +220,29 @@ export default class Processor {
       }
 
       copyBuffers(box)
+      // return [box]
+
       copyBuffers(cyl)
+
       cyl.setEnabled(false)
+      // return [cyl]
       copyBuffers(line)
       line.setEnabled(false)
-
       return [box, cyl, line]
 
-      function copyBuffers(box) {
+      function copyBuffers(m: Mesh) {
          //let matrixDataClone = Float32Array.from(matrixData) //new Float32Array(matrixData)
-         box.thinInstanceSetBuffer('matrix', matrixData, 16, true)
-         box.doNotSyncBoundingInfo = true
-         box.thinInstanceRefreshBoundingInfo(false)
-         box.thinInstanceSetBuffer('color', colorData, 4, true)
-         box.thinInstanceSetBuffer('pickColor', pickData, 3, true) //this holds the color ids for the mesh
-         box.thinInstanceSetBuffer('filePosition', filePositionData, 1, true)
-         box.thinInstanceSetBuffer('filePositionEnd', fileEndPositionData, 1, true)
-         box.thinInstanceSetBuffer('tool', toolData, 1, true)
-         box.thinInstanceSetBuffer('feedRate', feedRate, 1, true)
+         m.thinInstanceSetBuffer('matrix', matrixData, 16, true)
+         m.doNotSyncBoundingInfo = true
+         m.thinInstanceRefreshBoundingInfo(false)
+         m.thinInstanceSetBuffer('color', colorData, 4, true)
+         m.thinInstanceSetBuffer('pickColor', pickData, 3, true) //this holds the color ids for the mesh
+         m.thinInstanceSetBuffer('filePosition', filePositionData, 1, true)
+         m.thinInstanceSetBuffer('filePositionEnd', fileEndPositionData, 1, true)
+         m.thinInstanceSetBuffer('tool', toolData, 1, true)
+         m.thinInstanceSetBuffer('feedRate', feedRate, 1, true)
+         m.freezeWorldMatrix()
+         m.isPickable = false
       }
 
       //Inner function with access to buffers

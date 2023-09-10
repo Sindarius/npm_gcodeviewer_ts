@@ -25,9 +25,10 @@ export default class GPUPicker {
       this.height = height
       this.renderTarget = new RenderTargetTexture('rt', { width, height }, this.scene, true)
       this.renderTarget.clearColor = new Color4(0, 0, 0, 0)
+      this.renderTarget.refreshRate = 1
       this.scene.customRenderTargets.push(this.renderTarget)
       this.shaderMaterial = new ShaderMaterial(
-         'vs_mat',
+         'pick_mat',
          this.scene,
          {
             vertexSource: vertexShader,
@@ -53,12 +54,13 @@ export default class GPUPicker {
             isEnabled = this.renderTargetMesh.isEnabled()
             this.renderTargetMesh.setEnabled(true)
          } else {
-            console.log('no target')
+            //console.log('no target')
          }
       })
       this.renderTarget.onAfterRenderObservable.add(() => {
          const x = Math.round(this.scene.pointerX)
          const y = this.height - Math.round(this.scene.pointerY)
+
          const pixels = this.readTexturePixels(
             this.engine._gl,
             this.renderTarget._texture._hardwareTexture.underlyingResource,
@@ -74,7 +76,7 @@ export default class GPUPicker {
          if (this.renderTargetMesh) {
             if (!isEnabled) this.renderTargetMesh.setEnabled(false)
          } else {
-            console.log('no target')
+            //console.log('no target')
          }
       })
    }

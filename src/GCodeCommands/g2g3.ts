@@ -14,7 +14,7 @@ export default function (props: Props, line: string): Base {
 
    let tokens = line.split(tokenList)
 
-   move.extruding = line.indexOf('E') > 0 //|| this.g1AsExtrusion //Treat as an extrusion in cnc mode
+   move.extruding = line.indexOf('E') > 0 || props.cncMode //|| this.g1AsExtrusion //Treat as an extrusion in cnc mode
 
    // let cw = tokens.filter((t) => t === 'G2' || t === 'G02')
 
@@ -45,6 +45,7 @@ export default function (props: Props, line: string): Base {
       line.lineNumber = move.lineNumber
       line.filePosition = move.filePosition
       line.feedRate = props.CurrentFeedRate
+      props.currentTool.color.toArray(line.color)
 
       line.start = [curPt[0], curPt[1], curPt[2]]
       line.end = [point.x, point.y, point.z]

@@ -50,6 +50,7 @@ export default class ProcessorProperties {
    totalRenderedSegments: number = 0
    fixRadius: boolean = false // Used to fix a radius on an arc if it's too small. Some CNC processors "fix" G2/G3 for you
    arcPlane: ArcPlane = ArcPlane.XY // Used to determine the plane of an arc
+   cncMode: boolean = true
 
    //Used for belt processing
    currentZ = 0

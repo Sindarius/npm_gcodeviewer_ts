@@ -9,13 +9,11 @@ import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder'
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial'
 import { PointLight } from '@babylonjs/core/Lights/pointLight'
 import { FlyCamera } from '@babylonjs/core/Cameras/flyCamera'
-import '@babylonjs/core/Culling/ray'
 import Processor from './processor'
 import { EngineInstrumentation } from '@babylonjs/core/Instrumentation/engineInstrumentation'
 import { SceneInstrumentation } from '@babylonjs/core/Instrumentation/sceneInstrumentation'
 import '@babylonjs/core/Meshes/thinInstanceMesh'
 import '@babylonjs/core/Engines/Extensions/engine.query'
-import '@babylonjs/core/Culling/ray'
 import GPUPicker from './gpupicker'
 import { PointerEventTypes } from '@babylonjs/core/Events/pointerEvents'
 import '@babylonjs/core/Rendering/'
@@ -112,7 +110,9 @@ export default class Viewer {
 
       this.scene.doNotHandleCursors = true //We can't make cursor changes in the worker thread
       //this.scene.performancePriority = ScenePerformancePriority.Intermediate //.Aggressive
-      this.scene.autoClear = true
+      //this.scene.autoClear = true
+      this.scene.skipPointerMovePicking = true
+
       this.processor.scene = this.scene
       this.processor.worker = this.worker
       this.processor.gpuPicker = new GPUPicker(
@@ -148,12 +148,6 @@ export default class Viewer {
       this.pointLight.radius = 50
       this.pointLight.diffuse = new Color3(1, 1, 1)
       this.pointLight.specular = new Color3(1, 1, 1)
-
-      this.box = CreateBox('Box', { width: 1, height: 1, depth: 1 }, this.scene)
-      this.box.position = new Vector3(150, 0, 150)
-      let material = new StandardMaterial('SM', this.scene)
-      material.diffuseColor = new Color3(1, 0, 0)
-      this.box.material = material
 
       this.scene.render()
       this.lastTimeStamp = Date.now()
