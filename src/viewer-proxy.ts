@@ -225,6 +225,10 @@ export default class ViewerProxy {
       this.webWorker.postMessage({ type: 'setprogressmode', mode: mode })
    }
 
+   setMeshMode(mode: number): void {
+      this.webWorker.postMessage({ type: 'setmeshmode', mode: mode })
+   }
+
    //Used to clone the event properties out of an object so they can be sent to worker
    cloneEvent(event) {
       let cloneFieldList = event.constructor.name === 'KeyboardEvent' ? keyboardEventFields : mouseEventFields

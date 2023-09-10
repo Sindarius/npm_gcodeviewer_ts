@@ -18,12 +18,19 @@ const end = ref(0)
 const lines = ref<string[]>([])
 const alpha = ref(false)
 const progressMode = ref(false)
+const meshMode = ref(0)
 
 const renderModes = [
    { label: 'Default', value: 0 },
    { label: 'Tool', value: 1 },
    { label: 'Feed Rate', value: 2 },
    { label: 'Color Index', value: 5 },
+]
+
+const meshModes = [
+   { label: 'High', value: 1 },
+   { label: 'Low', value: 0 },
+   { label: 'Line', value: 2 },
 ]
 
 onMounted(() => {
@@ -85,6 +92,10 @@ async function drop(event: DragEvent): Promise<void> {
 
 watch(renderMode, (newVal, oldVal) => {
    viewer.setRenderMode(newVal)
+})
+
+watch(meshMode, (newVal, oldVal) => {
+   viewer.setMeshMode(newVal)
 })
 
 watch(progressMode, (newVal, oldVal) => {
@@ -157,6 +168,14 @@ function lineClicked(props: any[]) {
          label="Render Mode"
          v-model="renderMode"
          :items="renderModes"
+      ></v-select>
+      <v-select
+         item-title="label"
+         item-value="value"
+         class="meshes"
+         label="Mesh Mode"
+         v-model="meshMode"
+         :items="meshModes"
       ></v-select>
       <form @submit.prevent="filePosInput">
          <v-text-field density="compact" variant="outlined" class="filePosInput" v-model="filePos" />
@@ -285,5 +304,13 @@ header {
    top: 10px;
    right: 500px;
    z-index: 11;
+}
+
+.meshes {
+   position: absolute;
+   top: 70px;
+   right: 10px;
+   z-index: 11;
+   width: 300px;
 }
 </style>

@@ -11,7 +11,6 @@ import GPUPicker from './gpupicker'
 import { colorToNum, delay, binarySearchClosest } from './util'
 import ModelMaterial from './modelmaterial'
 import { MoveData } from './GCodeLines/move'
-import { VertexBuffer } from '@babylonjs/core/Buffers/buffer'
 
 export default class Processor {
    gCodeLines: Base[] = []
@@ -94,11 +93,8 @@ export default class Processor {
    }
 
    async testRenderScene() {
-      this.scene.meshes.forEach((m) => {
-         m.dispose()
-      })
-
       for (let idx = 0; idx < this.meshes.length; idx++) {
+         this.scene.removeMesh(this.meshes[idx])
          this.meshes[idx].dispose()
       }
 
@@ -127,41 +123,31 @@ export default class Processor {
 
       let lastMod = Math.floor(renderlines.length / this.breakPoint)
 
+      let rl = []
       for (let idx = 0; idx <= lastMod; idx++) {
          let sl = renderlines.slice(idx * this.breakPoint, (idx + 1) * this.breakPoint)
-
-         //Solid test
-         let rl = this.testBuildMesh(sl)
-         //Line Test
-         //let rl = this.testLinesMesh(sl, material)
-
+         rl = this.testBuildMesh(sl)
          this.meshes.push(...rl)
-         //if (idx % 2 == 0) {
          await delay(0.0001)
-         //}
       }
 
-      //Now that everything is loaded lets add the meshes to the gpu picker
-      //for (let m in this.meshes) {
-      //let mesh = this.meshes[m]
-      this.gpuPicker.addToRenderList(this.meshes[0]) //use the box mesh
-      //}
+      this.gpuPicker.addToRenderList(rl[0]) //use the box mesh for all picking
    }
 
-   //Experimental -- may not work
-   mode = 0
-   setMeshGeometry() {
-      console.log(this.meshes)
-      this.mode = this.mode + 1 > 2 ? 0 : this.mode + 1
+   // 0 = Box
+   // 1 = cyl
+   // 2 = line
+   setMeshMode(mode) {
+      mode = mode > 2 ? 0 : mode
       this.meshes.forEach((m) => m.setEnabled(false))
-      this.meshes[this.mode].setEnabled(true)
+      this.meshes[mode].setEnabled(true)
    }
 
    testBuildMesh(renderlines): Mesh[] {
       this.maxIndex = this.processorProperties.totalRenderedSegments
       console.log('Building Mesh', renderlines.length)
 
-      let box = MeshBuilder.CreateBox('box2', { width: 1, height: 1, depth: 1 }, this.scene)
+      let box = MeshBuilder.CreateBox('box', { width: 1, height: 1, depth: 1 }, this.scene)
       box.position = new Vector3(0, 0, 0)
       box.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
       box.bakeCurrentTransformIntoVertices()
@@ -227,8 +213,8 @@ export default class Processor {
       return [box, cyl, line]
 
       function copyBuffers(box) {
-         let matrixDataClone = Float32Array.from(matrixData) //new Float32Array(matrixData)
-         box.thinInstanceSetBuffer('matrix', matrixDataClone, 16, true)
+         //let matrixDataClone = Float32Array.from(matrixData) //new Float32Array(matrixData)
+         box.thinInstanceSetBuffer('matrix', matrixData, 16, true)
          box.doNotSyncBoundingInfo = true
          box.thinInstanceRefreshBoundingInfo(false)
          box.thinInstanceSetBuffer('color', colorData, 4, true)

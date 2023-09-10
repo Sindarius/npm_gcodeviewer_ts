@@ -98,5 +98,8 @@ self.addEventListener('message', async (message) => {
       case 'setprogressmode':
          self.viewer.processor.modelMaterial.forEach((m) => m.setProgressMode(message.data.mode))
          break
+      case 'setmeshmode':
+         self.viewer.processor.setMeshMode(message.data.mode)
+         break
    }
 })
