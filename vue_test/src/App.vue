@@ -29,7 +29,7 @@ const renderModes = [
 
 const meshModes = [
    { label: 'High', value: 1 },
-   { label: 'Low', value: 0 },
+   { label: 'Normal', value: 0 },
    { label: 'Line', value: 2 },
 ]
 

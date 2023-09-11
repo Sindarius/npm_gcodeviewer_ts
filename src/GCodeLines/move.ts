@@ -36,6 +36,7 @@ export default class Move extends Base {
    constructor(props: ProcessorProperties, line: string) {
       super(props, line)
       props.totalRenderedSegments += 1 //We need to track segment counts because of arcs
+      this.color = props.slicer.getFeatureColor()
    }
 
    get length(): number {

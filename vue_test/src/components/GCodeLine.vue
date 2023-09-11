@@ -81,5 +81,6 @@ const background = computed(() => {
 }
 
 .line-content {
+   color: white;
 }
 </style>

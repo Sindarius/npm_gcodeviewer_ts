@@ -1,6 +1,8 @@
 import { Vector3 } from '@babylonjs/core/Maths/math.vector'
 import Tool from './tools'
 import { Color4 } from '@babylonjs/core/Maths/math.color'
+import SlicerBase from './GCodeParsers/slicerbase'
+import GenericBase from './GCodeParsers/genericbase'
 
 export enum ColorMode {
    Tool,
@@ -36,7 +38,6 @@ export default class ProcessorProperties {
    minFeedRate: number = 999999999
    progressColor: Color4 = new Color4(0, 1, 0, 1)
    progressAnimation: boolean = true //Formerly known as "renderAnimation"
-   colorMode: ColorMode = ColorMode.Tool
    firstGCodeByte: number = 0
    lastGCodeByte: number = 0
    zBelt: boolean = false
@@ -50,7 +51,8 @@ export default class ProcessorProperties {
    totalRenderedSegments: number = 0
    fixRadius: boolean = false // Used to fix a radius on an arc if it's too small. Some CNC processors "fix" G2/G3 for you
    arcPlane: ArcPlane = ArcPlane.XY // Used to determine the plane of an arc
-   cncMode: boolean = true
+   cncMode: boolean = false
+   slicer: SlicerBase = new GenericBase()
 
    //Used for belt processing
    currentZ = 0

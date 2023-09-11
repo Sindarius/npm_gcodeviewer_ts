@@ -17,6 +17,7 @@ export default class ArcMove extends Base {
 
    constructor(props: ProcessorProperties, line: string) {
       super(props, line)
+      this.color = props.slicer.getFeatureColor()
       this.colorId = numToColor(this.lineNumber)
    }
 }

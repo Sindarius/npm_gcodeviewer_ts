@@ -1,31 +1,64 @@
 import ProcessorProperties from '../processorproperties'
-import ParserBase from './parserbase'
+import SlicerBase from './slicerbase'
 
-export default class PrusaSlicer extends ParserBase {
+export default class PrusaSlicer extends SlicerBase {
    featureList = {
-      Perimeter: { color: [1, 0.9, 0.3, 1], perimeter: false, support: false },
-      'External perimeter': { color: [1, 0.5, 0.2, 1], perimeter: true, support: false },
-      'Internal infill': { color: [0.59, 0.19, 0.16, 1], perimeter: false, support: false },
-      'Solid infill': { color: [0.59, 0.19, 0.8, 1], perimeter: false, support: false },
-      'Top solid infill': { color: [0.95, 0.25, 0.25, 1], perimeter: true, support: false },
-      'Bridge infill': { color: [0.3, 0.5, 0.73, 1], perimeter: false, support: false },
-      'Gap fill': { color: [1, 1, 1, 1], perimeter: false, support: false },
-      Skirt: { color: [0, 0.53, 0.43, 1], perimeter: false, support: false },
-      'Skirt/Brim': { color: [0, 0.53, 0.43, 1], perimeter: false, support: false },
-      'Supported material': { color: [0, 1, 0, 1], perimeter: false, support: true },
-      'Supported material interface': { color: [0, 0.5, 0, 1], perimeter: false, support: true },
-      Custom: { color: [0.5, 0.5, 0.5, 1], perimeter: false, support: false },
-      Unknown: { color: [0.5, 0.5, 0.5, 1], perimeter: false, support: false },
+      PERIMETER: { color: [1, 0.9, 0.3, 1], perimeter: false, support: false },
+      'EXTERNAL PERIMETER': { color: [1, 0.5, 0.2, 1], perimeter: true, support: false },
+      'INTERNAL INFILL': { color: [0.59, 0.19, 0.16, 1], perimeter: false, support: false },
+      'SOLID INFILL': { color: [0.59, 0.19, 0.8, 1], perimeter: false, support: false },
+      'TOP SOLID INFILL': { color: [0.95, 0.25, 0.25, 1], perimeter: true, support: false },
+      'BRIDGE INFILL': { color: [0.3, 0.5, 0.73, 1], perimeter: false, support: false },
+      'GAP FILL': { color: [1, 1, 1, 1], perimeter: false, support: false },
+      SKIRT: { color: [0, 0.53, 0.43, 1], perimeter: false, support: false },
+      'SKIRT/BRIM': { color: [0, 0.53, 0.43, 1], perimeter: false, support: false },
+      'SUPPORTED MATERIAL': { color: [0, 1, 0, 1], perimeter: false, support: true },
+      'SUPPORTED MATERIAL INTERFACE': { color: [0, 0.5, 0, 1], perimeter: false, support: true },
+      CUSTOM: { color: [0.5, 0.5, 0.5, 1], perimeter: false, support: false },
+      UNKNOWN: { color: [0.5, 0.5, 0.5, 1], perimeter: false, support: false },
 
       //Look up colors
-      'Support material': { color: [0.5, 0.5, 0.5, 1], perimeter: false, support: true },
-      'Support material interface': { color: [0.5, 0.5, 0.5, 1], perimeter: false, support: true },
-      'Overhang perimeter': { color: [0.5, 0.5, 0.5, 1], perimeter: true, support: false },
-      'Wipe tower': { color: [0.5, 0.5, 0.5, 1], perimeter: true, support: false },
+      'SUPPORT MATERIAL': { color: [0.5, 0.5, 0.5, 1], perimeter: false, support: true },
+      'SUPPORT MATERIAL INTERFACE': { color: [0.5, 0.5, 0.5, 1], perimeter: false, support: true },
+      'OVERHANG PERIMETER': { color: [0.5, 0.5, 0.5, 1], perimeter: true, support: false },
+      'WIPE TOWER': { color: [0.5, 0.5, 0.5, 1], perimeter: true, support: false },
    }
 
    constructor() {
       super()
+      console.info('Prusa Slicer detected')
+   }
+
+   processComment(comment: string) {
+      if (comment.startsWith(';TYPE:')) {
+         this.feature = comment.substring(6).trim()
+      }
+   }
+
+   getFeatureColor(): number[] {
+      try {
+         return this.featureList[this.feature].color
+      } catch {
+         return [1, 1, 1, 1]
+      }
+   }
+
+   isPerimeter(): boolean {
+      try {
+         return this.featureList[this.feature].perimeter
+      } catch {
+         this.reportMissingFeature(this.feature)
+         return false
+      }
+   }
+
+   isSupport(): boolean {
+      try {
+         return this.featureList[this.feature].support
+      } catch {
+         this.reportMissingFeature(this.feature)
+         return false
+      }
    }
 
    processHeader(file: string[], props: ProcessorProperties) {

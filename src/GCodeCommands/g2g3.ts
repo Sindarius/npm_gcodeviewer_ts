@@ -45,7 +45,7 @@ export default function (props: Props, line: string): Base {
       line.lineNumber = move.lineNumber
       line.filePosition = move.filePosition
       line.feedRate = props.CurrentFeedRate
-      props.currentTool.color.toArray(line.color)
+      line.color = props.slicer.getFeatureColor()
 
       line.start = [curPt[0], curPt[1], curPt[2]]
       line.end = [point.x, point.y, point.z]

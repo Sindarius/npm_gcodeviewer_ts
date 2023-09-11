@@ -78,7 +78,9 @@ export default class ModelMaterial {
 
       
          switch(renderMode){
-            case 0: break; // use default diffuse color;
+            case 0: 
+               diffuseColor = vColor.rgb; 
+            break; // use default diffuse color;
             case 1:
                if(fTool < 255.0) {                
                   diffuseColor = toolColors[int(fTool)].rgb;

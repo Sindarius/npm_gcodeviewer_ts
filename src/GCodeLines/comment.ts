@@ -8,5 +8,6 @@ export default class Comment extends Base {
       if (line.startsWith('M')) {
          this.lineType = 'M'
       }
+      props.slicer.processComment(line)
    }
 }

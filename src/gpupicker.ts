@@ -14,7 +14,7 @@ export default class GPUPicker {
    height: number
    colorTestCallBack: any
    currentPosition: number = 0
-   renderTargetMesh: Mesh
+   renderTargetMeshs: Mesh[] = []
 
    //  shaderMaterial: CustomMaterial
    shaderMaterial: ShaderMaterial
@@ -50,9 +50,9 @@ export default class GPUPicker {
 
       let isEnabled = false
       this.renderTarget.onBeforeRenderObservable.add(() => {
-         if (this.renderTargetMesh) {
-            isEnabled = this.renderTargetMesh.isEnabled()
-            this.renderTargetMesh.setEnabled(true)
+         if (this.renderTargetMeshs) {
+            isEnabled = this.renderTargetMeshs[0]?.isEnabled() ?? false
+            this.renderTargetMeshs.forEach((m) => m.setEnabled(true))
          } else {
             //console.log('no target')
          }
@@ -73,8 +73,8 @@ export default class GPUPicker {
          if (this.colorTestCallBack) {
             this.colorTestCallBack(pixels)
          }
-         if (this.renderTargetMesh) {
-            if (!isEnabled) this.renderTargetMesh.setEnabled(false)
+         if (this.renderTargetMeshs) {
+            if (!isEnabled) this.renderTargetMeshs.forEach((m) => m.setEnabled(false))
          } else {
             //console.log('no target')
          }
@@ -98,10 +98,13 @@ export default class GPUPicker {
       this.renderTarget.resize({ width, height })
    }
 
+   clearRenderList() {
+      this.renderTarget.renderList = []
+   }
+
    addToRenderList(mesh: Mesh) {
-      console.log('render target mesh', mesh)
-      this.renderTarget.setMaterialForRendering(mesh, this.shaderMaterial)
-      this.renderTargetMesh = mesh
+      this.renderTargetMeshs.push(mesh)
+      this.renderTarget.setMaterialForRendering(this.renderTargetMeshs, this.shaderMaterial)
       this.renderTarget.renderList.push(mesh)
    }
 

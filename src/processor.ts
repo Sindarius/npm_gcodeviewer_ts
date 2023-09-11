@@ -11,13 +11,14 @@ import GPUPicker from './gpupicker'
 import { colorToNum, delay, binarySearchClosest } from './util'
 import ModelMaterial from './modelmaterial'
 import { MoveData } from './GCodeLines/move'
+import { slicerFactory } from './GCodeParsers/slicerfactory'
 
 export default class Processor {
    gCodeLines: Base[] = []
    processorProperties: ProcessorProperties = new ProcessorProperties()
    scene: Scene
    meshes: Mesh[] = []
-   breakPoint = 160000000
+   breakPoint = 100000 // 160000000
    gpuPicker: GPUPicker
    worker: Worker
    modelMaterial: ModelMaterial[]
@@ -30,9 +31,9 @@ export default class Processor {
    async loadFile(file) {
       this.gCodeLines = []
       this.meshes = []
-      //this.meshDict = {}
       this.buildMaterial()
       this.processorProperties = new ProcessorProperties() //Reset for now
+      this.processorProperties.slicer = slicerFactory(file)
       console.log('Processing file')
       const lines = file.split('\n')
       let pos = 0
@@ -80,11 +81,7 @@ export default class Processor {
 
    buildMaterial() {
       if (!this.modelMaterial) {
-         this.modelMaterial = [
-            new ModelMaterial(this.scene),
-            new ModelMaterial(this.scene),
-            new ModelMaterial(this.scene),
-         ]
+         this.modelMaterial = []
       }
       this.modelMaterial.forEach((m) => {
          m.updateCurrentFilePosition(this.filePosition)
@@ -92,7 +89,15 @@ export default class Processor {
       })
    }
 
+   addNewMaterial(): ModelMaterial {
+      let m = new ModelMaterial(this.scene)
+      this.modelMaterial.push(m)
+      return m
+   }
+
    async testRenderScene() {
+      this.gpuPicker.clearRenderList()
+
       for (let idx = 0; idx < this.meshes.length; idx++) {
          this.scene.removeMesh(this.meshes[idx])
          this.meshes[idx].dispose()
@@ -107,18 +112,19 @@ export default class Processor {
       let lastRenderedIdx = 0
 
       for (let idx = 0; idx < this.gCodeLines.length - 1; idx++) {
+         let gCodeline = this.gCodeLines[idx] as Move
          try {
-            if (this.gCodeLines[idx].lineType === 'L' && this.gCodeLines[idx].extruding) {
+            if (gCodeline.lineType === 'L' && gCodeline.extruding) {
                //Regular move
-               renderlines.push(this.gCodeLines[idx])
+               renderlines.push(gCodeline)
                segmentCount++
-            } else if (this.gCodeLines[idx].lineType === 'A' && this.gCodeLines[idx].extruding) {
+            } else if (gCodeline.lineType === 'A' && gCodeline.extruding) {
                //Arc Move
-               renderlines.push(this.gCodeLines[idx])
+               renderlines.push(gCodeline)
                segmentCount += (this.gCodeLines[idx] as ArcMove).segments.length
-            } else if (this.gCodeLines[idx].lineType === 'T') {
+            } else if (gCodeline.lineType === 'T') {
                //Travel
-               renderlines.push(this.gCodeLines[idx])
+               renderlines.push(gCodeline)
                segmentCount++
             } else {
                tossCount++
@@ -187,13 +193,17 @@ export default class Processor {
       let toolData = new Float32Array(segCount)
       let feedRate = new Float32Array(segCount)
 
-      box.material = this.modelMaterial[0].material
+      box.material = this.addNewMaterial().material
       box.material.freeze()
-      cyl.material = this.modelMaterial[1].material
+
+      cyl.material = this.addNewMaterial().material
       cyl.material.freeze()
-      line.material = this.modelMaterial[2].material
+
+      let mm = this.addNewMaterial()
+      line.material = mm.material
       line.material.freeze()
-      this.modelMaterial[2].setLineMesh(true)
+
+      mm.setLineMesh(true)
 
       //  box.name = `Mesh${this.meshes.length}}`
 
@@ -220,14 +230,11 @@ export default class Processor {
       }
 
       copyBuffers(box)
-      // return [box]
-
       copyBuffers(cyl)
-
       cyl.setEnabled(false)
-      // return [cyl]
       copyBuffers(line)
       line.setEnabled(false)
+
       return [box, cyl, line]
 
       function copyBuffers(m: Mesh) {
