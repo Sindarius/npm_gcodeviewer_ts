@@ -25,13 +25,23 @@ export default class Processor {
    filePosition: number = 0
    maxIndex: number = 0
    focusedColorId = 0
+   lastMeshMode = 0
 
    constructor() {}
 
-   async loadFile(file) {
-      this.gCodeLines = []
+   cleanup() {
+      this.gpuPicker.clearRenderList()
+      for (let idx = 0; idx < this.meshes.length; idx++) {
+         this.scene.removeMesh(this.meshes[idx], true)
+         this.meshes[idx].dispose(false, true)
+      }
       this.meshes = []
-      this.buildMaterial()
+      this.modelMaterial = []
+   }
+
+   async loadFile(file) {
+      this.cleanup()
+      this.gCodeLines = []
       this.processorProperties = new ProcessorProperties() //Reset for now
       this.processorProperties.slicer = slicerFactory(file)
       console.log('Processing file')
@@ -43,7 +53,13 @@ export default class Processor {
          this.processorProperties.filePosition = pos
          pos += line.length + 1 //Account for newlines that have been stripped
          this.gCodeLines.push(ProcessLine(this.processorProperties, line.toUpperCase())) //uperrcase all the gcode
+         if (idx % 10000 == 0) {
+            this.worker.postMessage({ type: 'progress', progress: idx / lines.length, label: 'Processing file' })
+         }
       }
+
+      this.worker.postMessage({ type: 'progress', progress: 1, label: 'Processing file' })
+
       console.info('File Loaded.... Rendering Vertices')
       await this.testRenderScene()
 
@@ -77,16 +93,8 @@ export default class Processor {
          start: this.processorProperties.firstGCodeByte,
          end: this.processorProperties.lastGCodeByte,
       })
-   }
 
-   buildMaterial() {
-      if (!this.modelMaterial) {
-         this.modelMaterial = []
-      }
-      this.modelMaterial.forEach((m) => {
-         m.updateCurrentFilePosition(this.filePosition)
-         m.updateToolColors(this.processorProperties.buildToolFloat32Array())
-      })
+      this.setMeshMode(this.lastMeshMode)
    }
 
    addNewMaterial(): ModelMaterial {
@@ -96,20 +104,12 @@ export default class Processor {
    }
 
    async testRenderScene() {
-      this.gpuPicker.clearRenderList()
-
-      for (let idx = 0; idx < this.meshes.length; idx++) {
-         this.scene.removeMesh(this.meshes[idx])
-         this.meshes[idx].dispose()
-      }
-
-      this.meshes = []
-
       const renderlines = []
       let tossCount = 0
 
       let segmentCount = 0
       let lastRenderedIdx = 0
+      let alphaIndex = 0
 
       for (let idx = 0; idx < this.gCodeLines.length - 1; idx++) {
          let gCodeline = this.gCodeLines[idx] as Move
@@ -134,22 +134,39 @@ export default class Processor {
          }
 
          if (segmentCount >= this.breakPoint) {
+            alphaIndex++
             let sl = renderlines.slice(lastRenderedIdx)
-            let rl = this.testBuildMesh(sl, segmentCount)
+            let rl = this.testBuildMesh(sl, segmentCount, alphaIndex)
             this.meshes.push(...rl)
             this.gpuPicker.addToRenderList(rl[0]) //use the box mesh for all picking
             lastRenderedIdx = renderlines.length
             segmentCount = 0
+
+            this.worker.postMessage({
+               type: 'progress',
+               progress: idx / this.gCodeLines.length,
+               label: 'Generating model.',
+            })
          }
       }
 
       if (segmentCount > 0) {
          let sl = renderlines.slice(lastRenderedIdx)
-         let rl = this.testBuildMesh(sl, segmentCount)
+         let rl = this.testBuildMesh(sl, segmentCount, alphaIndex)
          this.meshes.push(...rl)
-         await delay(0.0001)
          this.gpuPicker.addToRenderList(rl[0]) //use the box mesh for all picking
       }
+
+      this.worker.postMessage({
+         type: 'progress',
+         progress: 1,
+         label: 'Generating model.',
+      })
+
+      this.modelMaterial.forEach((m) => {
+         m.updateCurrentFilePosition(this.filePosition)
+         m.updateToolColors(this.processorProperties.buildToolFloat32Array())
+      })
    }
 
    // 0 = Box
@@ -161,16 +178,15 @@ export default class Processor {
       for (let idx = mode; idx < this.meshes.length; idx += 3) {
          this.meshes[idx].setEnabled(true)
       }
+      this.lastMeshMode = mode
    }
 
-   testBuildMesh(renderlines, segCount): Mesh[] {
-      console.log('Building Mesh', renderlines.length, segCount)
-
+   testBuildMesh(renderlines, segCount, alphaIndex): Mesh[] {
       let box = MeshBuilder.CreateBox('box', { width: 1, height: 1, depth: 1 }, this.scene)
       box.position = new Vector3(0, 0, 0)
-      box.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
-      box.bakeCurrentTransformIntoVertices()
-      box.convertToUnIndexedMesh()
+      // box.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
+      // box.bakeCurrentTransformIntoVertices()
+      // box.convertToUnIndexedMesh()
 
       let cyl = MeshBuilder.CreateCylinder('cyl', { height: 1, diameter: 1 }, this.scene)
       cyl.locallyTranslate(new Vector3(0, 0, 0))
@@ -192,17 +208,20 @@ export default class Processor {
       let fileEndPositionData = new Float32Array(segCount)
       let toolData = new Float32Array(segCount)
       let feedRate = new Float32Array(segCount)
+      let isPerimeter = new Float32Array(segCount)
 
       box.material = this.addNewMaterial().material
+      box.alphaIndex = alphaIndex
       box.material.freeze()
 
       cyl.material = this.addNewMaterial().material
+      cyl.alphaIndex = alphaIndex
       cyl.material.freeze()
 
       let mm = this.addNewMaterial()
+      line.alphaIndex = alphaIndex
       line.material = mm.material
       line.material.freeze()
-
       mm.setLineMesh(true)
 
       //  box.name = `Mesh${this.meshes.length}}`
@@ -242,12 +261,13 @@ export default class Processor {
          m.thinInstanceSetBuffer('matrix', matrixData, 16, true)
          m.doNotSyncBoundingInfo = true
          m.thinInstanceRefreshBoundingInfo(false)
-         m.thinInstanceSetBuffer('color', colorData, 4, true)
+         m.thinInstanceSetBuffer('baseColor', colorData, 4, true)
          m.thinInstanceSetBuffer('pickColor', pickData, 3, true) //this holds the color ids for the mesh
          m.thinInstanceSetBuffer('filePosition', filePositionData, 1, true)
          m.thinInstanceSetBuffer('filePositionEnd', fileEndPositionData, 1, true)
          m.thinInstanceSetBuffer('tool', toolData, 1, true)
          m.thinInstanceSetBuffer('feedRate', feedRate, 1, true)
+         m.thinInstanceSetBuffer('isPerimeter', isPerimeter, 1, true)
          m.freezeWorldMatrix()
          m.isPickable = false
       }
@@ -261,6 +281,7 @@ export default class Processor {
          fileEndPositionData.set([line.filePosition + line.line.length], idx) //Record the file position with the mesh
          toolData.set([line.tool], idx)
          feedRate.set([line.feedRate], idx)
+         isPerimeter.set([line.isPerimeter ? 1 : 0], idx)
       }
    }
 

@@ -5,8 +5,6 @@ import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera'
 import { Light } from '@babylonjs/core/Lights/light'
 import { Vector3, Matrix } from '@babylonjs/core/Maths/math.vector'
 import { Mesh } from '@babylonjs/core/Meshes/mesh'
-import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder'
-import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial'
 import { PointLight } from '@babylonjs/core/Lights/pointLight'
 import { FlyCamera } from '@babylonjs/core/Cameras/flyCamera'
 import Processor from './processor'
@@ -24,7 +22,7 @@ export default class Viewer {
    engine: Engine | null = null
    orbitCamera: ArcRotateCamera | null = null
    flyCamera: FlyCamera | null = null
-   offscreenCanvas: OffscreenCanvas
+   offscreenCanvas: OffscreenCanvas | HTMLCanvasElement
    box: Mesh
    boxRotation: number
    light: Light
@@ -37,6 +35,10 @@ export default class Viewer {
    registeredEventHandlers = new Map<string, any>() //These are event handlers we want to bind to. Currently Canvas, Window, Document that we fake in the worker.
    worker: Worker
    processor: Processor = new Processor()
+   offscreen: boolean = true
+   lastFrameUpdate: number = 0
+   renderTimeout: number = 1000
+   maxFrameRate = 1000 / 30
 
    // getBoundingInfo()
    rect = {
@@ -50,7 +52,11 @@ export default class Viewer {
       width: 0,
    }
 
-   constructor(data: any, worker: Worker) {
+   constructor() {}
+
+   //Init message worker
+   init_worker(data: any, worker: Worker) {
+      this.offscreen = true
       this.offscreenCanvas = data.offscreencanvas
 
       this.offscreenCanvas.addEventListener = (event, fn, opt) => {
@@ -76,16 +82,24 @@ export default class Viewer {
       this.worker = worker
    }
 
-   setSizes(width, height) {
-      //@ts-ignore
-      this.offscreenCanvas.clientWidth = width
-      //@ts-ignore
-      this.offscreenCanvas.clientHeight = height
-      this.offscreenCanvas.width = width
-      this.offscreenCanvas.height = height
+   init_direct(canvas: HTMLCanvasElement, fakeWorker) {
+      this.offscreen = false
+      this.offscreenCanvas = canvas
+      this.worker = fakeWorker
+   }
 
-      this.rect.right = this.rect.width = width
-      this.rect.bottom = this.rect.height = height
+   setSizes(width, height) {
+      if (this.offscreen) {
+         //@ts-ignore
+         this.offscreenCanvas.clientWidth = width
+         //@ts-ignore
+         this.offscreenCanvas.clientHeight = height
+         this.offscreenCanvas.width = width
+         this.offscreenCanvas.height = height
+
+         this.rect.right = this.rect.width = width
+         this.rect.bottom = this.rect.height = height
+      }
       if (this.engine) {
          this.engine.resize()
          this.processor.gpuPicker.updateRenderTargetSize(this.engine.getRenderWidth(), this.engine.getRenderHeight())
@@ -104,11 +118,14 @@ export default class Viewer {
       this.engine.enableOfflineSupport = false
 
       this.scene = new Scene(this.engine)
+
       this.scene.clearColor = new Color4(0.3, 0.3, 0.3, 1)
       //this.scene.useOrderIndependentTransparency = true
       //this.scene.depthPeelingRenderer.passCount = 2
 
-      this.scene.doNotHandleCursors = true //We can't make cursor changes in the worker thread
+      if (this.offscreen) {
+         this.scene.doNotHandleCursors = true //We can't make cursor changes in the worker thread
+      }
       //this.scene.performancePriority = ScenePerformancePriority.Intermediate //.Aggressive
       //this.scene.autoClear = true
       this.scene.skipPointerMovePicking = true
@@ -143,18 +160,28 @@ export default class Viewer {
       this.orbitCamera.panningSensibility = 2
       this.orbitCamera.wheelPrecision = 0.25
 
-      this.pointLight = new PointLight('pl', new Vector3(0, 0, 0), this.scene)
+      this.pointLight = new PointLight('pl', new Vector3(0, 1, -1), this.scene)
 
-      this.pointLight.radius = 50
       this.pointLight.diffuse = new Color3(1, 1, 1)
       this.pointLight.specular = new Color3(1, 1, 1)
 
       this.scene.render()
-      this.lastTimeStamp = Date.now()
 
+      //limit frames
+      let deltaTime = 0
       this.engine.runRenderLoop(() => {
+         if (document.hidden) return
+
+         deltaTime += this.engine.getDeltaTime()
+         if (deltaTime > this.maxFrameRate) {
+            deltaTime = 0
+         } else {
+            return
+         }
+
          this.pointLight.position = this.orbitCamera?.position ?? new Vector3(0, 0, 0)
          this.scene?.render()
+         this.lastFrameUpdate = Date.now()
       })
 
       this.scene.onPointerObservable.add((pointerInfo) => {
@@ -170,6 +197,16 @@ export default class Viewer {
       })
 
       //this.loadInstrumentation()
+   }
+
+   isArcRotateCameraStopped(camera) {
+      return (
+         camera.inertialAlphaOffset === 0 &&
+         camera.inertialBetaOffset === 0 &&
+         camera.inertialRadiusOffset === 0 &&
+         camera.inertialPanningX === 0 &&
+         camera.inertialPanningY === 0
+      )
    }
 
    loadInstrumentation() {
@@ -192,6 +229,12 @@ export default class Viewer {
 
    async loadFile(file) {
       await this.processor.loadFile(file)
+   }
+
+   setMaxFPS(fps) {
+      console.log(fps)
+      if (fps <= 0) fps = 1
+      this.maxFrameRate = 1000 / fps
    }
 
    //Send message to the main thread for events we want to bind to.

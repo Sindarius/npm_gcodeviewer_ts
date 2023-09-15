@@ -1,2 +1,2 @@
-import Viewer_Proxy from './viewer-proxy'
-export default Viewer_Proxy
+export { default as Viewer_Proxy } from './viewer-proxy'
+//export { default as Viewer_Direct } from './viewer-direct'

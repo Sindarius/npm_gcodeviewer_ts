@@ -31,12 +31,15 @@ export default class Move extends Base {
    feedRate: number = 0
    layerHeight: number = 0.2
    isPerimeter: boolean = false
+   isSupport: boolean = false
    colorId: number[] = [0, 0, 0] //Important note - ColorID is 1 indexed to match the file position.
 
    constructor(props: ProcessorProperties, line: string) {
       super(props, line)
       props.totalRenderedSegments += 1 //We need to track segment counts because of arcs
       this.color = props.slicer.getFeatureColor()
+      this.isPerimeter = props.slicer.isPerimeter()
+      this.isSupport = props.slicer.isSupport()
    }
 
    get length(): number {

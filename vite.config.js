@@ -5,6 +5,7 @@ const dts = require('vite-plugin-dts')
 module.exports = defineConfig({
   build: {
     minify: false,
+    base: './',
     commonjsOptions:{
       include:[/dist/, /node_modules/]
     },

@@ -229,6 +229,10 @@ export default class ViewerProxy {
       this.webWorker.postMessage({ type: 'setmeshmode', mode: mode })
    }
 
+   setMaxFPS(fps: number): void {
+      this.webWorker.postMessage({ type: 'setfps', fps: fps })
+   }
+
    //Used to clone the event properties out of an object so they can be sent to worker
    cloneEvent(event) {
       let cloneFieldList = event.constructor.name === 'KeyboardEvent' ? keyboardEventFields : mouseEventFields

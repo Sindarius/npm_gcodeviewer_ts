@@ -3,7 +3,7 @@ import { vModelSelect } from 'vue'
 import HelloWorld from './components/HelloWorld.vue'
 import TheWelcome from './components/TheWelcome.vue'
 import GCodeLine from './components/GCodeLine.vue'
-import Viewer_Proxy from 'test'
+import { Viewer_Proxy as Viewer_Inst } from 'test'
 import { ref, onMounted, onUnmounted, reactive, watch } from 'vue'
 import debounce from 'lodash.debounce'
 
@@ -19,9 +19,12 @@ const lines = ref<string[]>([])
 const alpha = ref(false)
 const progressMode = ref(false)
 const meshMode = ref(0)
+const progressValue = ref(100)
+const progressLabel = ref('')
+const fps = ref(30)
 
 const renderModes = [
-   { label: 'Default', value: 0 },
+   { label: 'Feature', value: 0 },
    { label: 'Tool', value: 1 },
    { label: 'Feed Rate', value: 2 },
    { label: 'Color Index', value: 5 },
@@ -33,9 +36,16 @@ const meshModes = [
    { label: 'Line', value: 2 },
 ]
 
+const fpsValues = [
+   { label: 'Unlocked', value: 999 },
+   { label: '60', value: 60 },
+   { label: '30', value: 30 },
+   { label: '15', value: 15 },
+]
+
 onMounted(() => {
    if (viewercanvas.value != null) {
-      viewer = new Viewer_Proxy(viewercanvas.value)
+      viewer = new Viewer_Inst(viewercanvas.value)
       viewer.init()
       viewer.passThru = (e) => {
          switch (e.type) {
@@ -53,6 +63,10 @@ onMounted(() => {
                lines.value.length = 0
                lines.value.push(...e.lines)
                lineNumber = lines.value.filter((l) => l.focus)[0].lineNumber
+               break
+            case 'progress':
+               progressValue.value = Math.floor(e.progress * 100)
+               progressLabel.value = e.label
                break
          }
       }
@@ -117,6 +131,10 @@ watch(alpha, (newVal) => {
    viewer.setAlphaMode(newVal)
 })
 
+watch(fps, (newVal) => {
+   viewer.setMaxFPS(newVal)
+})
+
 function reset() {
    viewer.reset()
    viewer.updateColorTest()
@@ -177,6 +195,14 @@ function lineClicked(props: any[]) {
          v-model="meshMode"
          :items="meshModes"
       ></v-select>
+      <v-select
+         item-title="label"
+         item-value="value"
+         class="fps"
+         label="FPS"
+         v-model="fps"
+         :items="fpsValues"
+      ></v-select>
       <form @submit.prevent="filePosInput">
          <v-text-field density="compact" variant="outlined" class="filePosInput" v-model="filePos" />
       </form>
@@ -198,6 +224,10 @@ function lineClicked(props: any[]) {
       <v-slider v-model="filePos" class="slider-pos" :min="start" :max="end" :step="1"></v-slider>
       <v-checkbox class="alpha" v-model="alpha">Set Alpha</v-checkbox>
       <v-checkbox class="progress" v-model="progressMode">Progress Mode</v-checkbox>
+      <div class="progressbar" v-if="progressValue < 100">
+         <v-label>{{ progressLabel }}</v-label>
+         <v-progress-linear :model-value="progressValue"></v-progress-linear>
+      </div>
    </header>
 
    <main></main>
@@ -244,6 +274,7 @@ header {
    top: 5px;
    left: 5px;
    z-index: 11;
+   color: white;
 }
 
 .reset {
@@ -252,6 +283,7 @@ header {
    right: 10px;
    z-index: 11;
    width: 300px;
+   color: white;
 }
 
 .colortest {
@@ -259,6 +291,7 @@ header {
    top: 30px;
    right: 5px;
    z-index: 11;
+   color: white;
 }
 
 .filePosInput {
@@ -290,6 +323,7 @@ header {
    left: 10px;
    overflow: none;
    z-index: 11;
+   color: white;
 }
 
 .alpha {
@@ -297,6 +331,7 @@ header {
    top: 10px;
    right: 400px;
    z-index: 11;
+   color: white;
 }
 
 .progress {
@@ -304,6 +339,7 @@ header {
    top: 10px;
    right: 500px;
    z-index: 11;
+   color: white;
 }
 
 .meshes {
@@ -312,5 +348,24 @@ header {
    right: 10px;
    z-index: 11;
    width: 300px;
+   color: white;
+}
+
+.progressbar {
+   position: absolute;
+   top: 50%;
+   right: calc(50% - 250px);
+   z-index: 11;
+   width: 500px;
+   color: white;
+}
+
+.fps {
+   position: absolute;
+   top: 130px;
+   right: 10px;
+   z-index: 11;
+   width: 300px;
+   color: white;
 }
 </style>

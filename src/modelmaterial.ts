@@ -15,10 +15,11 @@ export default class ModelMaterial {
 
    buildMaterial() {
       this.material = new CustomMaterial('processor_mat', this.scene)
-      this.material.specularColor = new Color3(0, 0, 0)
+
+      this.material.specularColor = new Color3(0.25, 0.25, 0.25)
 
       //Alpha
-      this.material.alpha = 0.99
+      this.material.alpha = 1 // 0.99
       this.material.forceDepthWrite = true
 
       this.material.AddAttribute('filePosition')
@@ -26,6 +27,8 @@ export default class ModelMaterial {
       this.material.AddAttribute('pickColor')
       this.material.AddAttribute('tool')
       this.material.AddAttribute('feedRate')
+      this.material.AddAttribute('isPerimeter')
+      this.material.AddAttribute('baseColor')
 
       this.material
          .AddUniform('animationLength', 'float', 5000)
@@ -47,6 +50,8 @@ export default class ModelMaterial {
       attribute float tool;
       attribute float feedRate;
       attribute float filePositionEnd;
+      attribute float isPerimeter;
+      attribute vec4 baseColor;
       
       flat out float fFilePosition;
       flat out float fFilePositionEnd;
@@ -54,6 +59,8 @@ export default class ModelMaterial {
       flat out float fTool;
       flat out vec3 vFocusedPickColor;
       flat out float fFeedRate;
+      flat out float fIsPerimeter;
+      flat out vec4 vBaseColor;
       `)
 
       this.material.Vertex_MainBegin(`
@@ -63,6 +70,12 @@ export default class ModelMaterial {
       fTool = floor(tool);
       vFocusedPickColor = focusedPickColor;
       fFeedRate = feedRate;
+      fIsPerimeter = isPerimeter;
+      vBaseColor = baseColor;
+      `)
+
+      this.material.Vertex_MainEnd(`
+         //vColor = vec4(1.); //prevent color from being applied against our diffuse
       `)
 
       this.material.Fragment_Definitions(`
@@ -72,6 +85,9 @@ export default class ModelMaterial {
       flat in float fTool;
       flat in vec3 vFocusedPickColor;
       flat in float fFeedRate;
+      flat in float fIsPerimeter;
+      flat in vec4 vBaseColor;
+      const vec3 lowerBound = vec3(0.3,0.3,0.3);
       `)
 
       this.material.Fragment_Custom_Diffuse(`
@@ -79,7 +95,7 @@ export default class ModelMaterial {
       
          switch(renderMode){
             case 0: 
-               diffuseColor = vColor.rgb; 
+               diffuseColor = vBaseColor.rgb; 
             break; // use default diffuse color;
             case 1:
                if(fTool < 255.0) {                
@@ -144,21 +160,37 @@ export default class ModelMaterial {
 
       this.material.Fragment_Before_FragColor(`
          if(lineMesh) {
-            color = vec4(diffuseColor.rgb, color.w);
+            if(fIsPerimeter < 1.0){
+               if(all(lessThan(diffuseColor.rgb,lowerBound.rgb))) {
+                  color = vec4(diffuseColor.rgb + lowerBound, color.a);
+               }
+               else {
+                  color = vec4(diffuseColor.rgb - lowerBound, color.a);
+               }
+
+            }
+            else {
+            color = vec4(diffuseColor.rgb, color.a);
+            }
          }      
+
          if(focused) 
          {
-            color.w = 1.0;
+            color.a = 1.0;
          }
          else
          {
-            color.w = fShow >= 0.0 || !alphaMode ? 1.0 : 0.05; 
+            color.a = fShow >= 0.0 || !alphaMode ? 0.99 : 0.05; 
          }
-
       `)
+
+      // this.material.Fragment_MainEnd(`
+      // gl_FragColor = vec4(diffuseColor.xyz, color.a);
+      // `)
 
       //Defaults
       this.material.onBindObservable.addOnce(() => {
+         this.material.getEffect()?.setBool('lineMesh', false)
          //Set default bools here... does not appear to work on setuniform
          //this.material.getEffect()?.setBool('progressMode', true).setBool('alphaMode', true)
       })
@@ -205,14 +237,12 @@ export default class ModelMaterial {
    }
 
    setMaxFeedRate(feedRate: number) {
-      console.log(`max ${feedRate}`)
       this.material.onBindObservable.addOnce(() => {
          this.material.getEffect()?.setFloat('maxFeedRate', feedRate)
       })
    }
 
    setMinFeedRate(feedRate: number) {
-      console.log(`min ${feedRate}`)
       this.material.onBindObservable.addOnce(() => {
          this.material.getEffect()?.setFloat('minFeedRate', feedRate)
       })

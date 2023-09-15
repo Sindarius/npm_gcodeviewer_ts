@@ -37,7 +37,8 @@ self.addEventListener('message', async (message) => {
             defaultView: self.window,
          }
 
-         self.viewer = new Viewer(message.data, self)
+         self.viewer = new Viewer()
+         self.viewer.init_worker(message.data, self)
          self.viewer.initEngine()
 
          break
@@ -78,6 +79,9 @@ self.addEventListener('message', async (message) => {
          break
       case 'setmeshmode':
          self.viewer.processor.setMeshMode(message.data.mode)
+         break
+      case 'setfps':
+         self.viewer.setMaxFPS(message.data.fps)
          break
    }
 })

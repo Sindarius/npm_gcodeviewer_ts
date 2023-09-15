@@ -12,6 +12,7 @@ export default class ArcMove extends Base {
    feedRate: number = 0
    layerHeight: number = 0.2
    isPerimeter: boolean = false
+   isSupport: boolean = false
    colorId: number[] = [0, 0, 0] //Important note - ColorID is 1 indexed to match the file position.
    segments: Move[] = []
 
@@ -19,5 +20,7 @@ export default class ArcMove extends Base {
       super(props, line)
       this.color = props.slicer.getFeatureColor()
       this.colorId = numToColor(this.lineNumber)
+      this.isPerimeter = props.slicer.isPerimeter()
+      this.isSupport = props.slicer.isSupport()
    }
 }

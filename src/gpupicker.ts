@@ -100,6 +100,7 @@ export default class GPUPicker {
 
    clearRenderList() {
       this.renderTarget.renderList = []
+      this.renderTargetMeshs = []
    }
 
    addToRenderList(mesh: Mesh) {
