@@ -16,10 +16,10 @@ export default class ModelMaterial {
    buildMaterial() {
       this.material = new CustomMaterial('processor_mat', this.scene)
 
-      this.material.specularColor = new Color3(0.25, 0.25, 0.25)
+      this.material.specularColor = new Color3(0.2, 0.2, 0.2)
 
       //Alpha
-      this.material.alpha = 1 // 0.99
+      this.material.alpha = 0.99
       this.material.forceDepthWrite = true
 
       this.material.AddAttribute('filePosition')
