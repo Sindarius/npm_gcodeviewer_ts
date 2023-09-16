@@ -54,10 +54,10 @@ const background = computed(() => {
 .gcode-line {
    cursor: pointer;
    border: 1px solid #888888;
-   width: 450px;
-   max-width: 450px;
-   font-size: 16px;
-   height: 30px;
+   width: 350px;
+   max-width: 350px;
+   font-size: 12px;
+   height: 18px;
    background-color: #000000aa;
    text-overflow: clip;
    white-space: nowrap;

@@ -26,6 +26,7 @@ export default class Processor {
    maxIndex: number = 0
    focusedColorId = 0
    lastMeshMode = 0
+   perimeterOnly = false
 
    constructor() {}
 
@@ -53,7 +54,7 @@ export default class Processor {
          this.processorProperties.filePosition = pos
          pos += line.length + 1 //Account for newlines that have been stripped
          this.gCodeLines.push(ProcessLine(this.processorProperties, line.toUpperCase())) //uperrcase all the gcode
-         if (idx % 10000 == 0) {
+         if (idx % 100000 == 0) {
             this.worker.postMessage({ type: 'progress', progress: idx / lines.length, label: 'Processing file' })
          }
       }
@@ -113,6 +114,11 @@ export default class Processor {
 
       for (let idx = 0; idx < this.gCodeLines.length - 1; idx++) {
          let gCodeline = this.gCodeLines[idx] as Move
+         if (this.perimeterOnly && !gCodeline.isPerimeter) {
+            this.gCodeLines[idx] = new Move_Thin(this.processorProperties, gCodeline as Move, null, idx)
+            tossCount++
+            continue
+         }
          try {
             if (gCodeline.lineType === 'L' && gCodeline.extruding) {
                //Regular move
