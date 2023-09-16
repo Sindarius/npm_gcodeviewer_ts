@@ -1,6 +1,9 @@
 import ProcessorProperties from '../processorproperties'
 export default abstract class SlicerBase {
    feature = ''
+   currentFeatureColor = [1, 1, 1, 1]
+   currentIsPerimeter = true
+   currentIsSupport = false
    perimeter = false
    support = false
    missingFeatures = []

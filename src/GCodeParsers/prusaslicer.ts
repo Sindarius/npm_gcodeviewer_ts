@@ -3,7 +3,7 @@ import SlicerBase from './slicerbase'
 
 export default class PrusaSlicer extends SlicerBase {
    featureList = {
-      PERIMETER: { color: [1, 0.9, 0.3, 1], perimeter: false, support: false },
+      PERIMETER: { color: [1, 0.9, 0.3, 1], perimeter: true, support: false },
       'EXTERNAL PERIMETER': { color: [1, 0.5, 0.2, 1], perimeter: true, support: false },
       'INTERNAL INFILL': { color: [0.59, 0.19, 0.16, 1], perimeter: false, support: false },
       'SOLID INFILL': { color: [0.59, 0.19, 0.8, 1], perimeter: false, support: false },
@@ -32,33 +32,39 @@ export default class PrusaSlicer extends SlicerBase {
    processComment(comment: string) {
       if (comment.startsWith(';TYPE:')) {
          this.feature = comment.substring(6).trim()
+
+         try {
+            this.currentFeatureColor = this.featureList[this.feature].color
+         } catch {
+            this.currentFeatureColor = [1, 1, 1, 1]
+         }
+
+         try {
+            this.currentIsPerimeter = this.featureList[this.feature].perimeter
+         } catch {
+            this.reportMissingFeature(this.feature)
+            this.currentIsPerimeter = true //We want to render if we don't know
+         }
+
+         try {
+            this.currentIsSupport = this.featureList[this.feature].support
+         } catch {
+            this.reportMissingFeature(this.feature)
+            this.currentIsSupport = false
+         }
       }
    }
 
-   getFeatureColor(): number[] {
-      try {
-         return this.featureList[this.feature].color
-      } catch {
-         return [1, 1, 1, 1]
-      }
+   getFeatureColord(): number[] {
+      return this.currentFeatureColor
    }
 
    isPerimeter(): boolean {
-      try {
-         return this.featureList[this.feature].perimeter
-      } catch {
-         this.reportMissingFeature(this.feature)
-         return false
-      }
+      return this.currentIsPerimeter
    }
 
    isSupport(): boolean {
-      try {
-         return this.featureList[this.feature].support
-      } catch {
-         this.reportMissingFeature(this.feature)
-         return false
-      }
+      return this.currentIsSupport
    }
 
    processHeader(file: string[], props: ProcessorProperties) {
