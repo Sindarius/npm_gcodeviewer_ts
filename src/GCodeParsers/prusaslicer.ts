@@ -3,7 +3,7 @@ import SlicerBase from './slicerbase'
 
 export default class PrusaSlicer extends SlicerBase {
    featureList = {
-      PERIMETER: { color: [1, 0.9, 0.3, 1], perimeter: true, support: false },
+      PERIMETER: { color: [1, 0.9, 0.3, 1], perimeter: false, support: false },
       'EXTERNAL PERIMETER': { color: [1, 0.5, 0.2, 1], perimeter: true, support: false },
       'INTERNAL INFILL': { color: [0.59, 0.19, 0.16, 1], perimeter: false, support: false },
       'SOLID INFILL': { color: [0.59, 0.19, 0.8, 1], perimeter: false, support: false },
@@ -32,30 +32,21 @@ export default class PrusaSlicer extends SlicerBase {
    processComment(comment: string) {
       if (comment.startsWith(';TYPE:')) {
          this.feature = comment.substring(6).trim()
-
-         try {
-            this.currentFeatureColor = this.featureList[this.feature].color
-         } catch {
+         let feature = this.featureList[this.feature]
+         if (feature) {
+            this.currentFeatureColor = feature.color
+            this.currentIsPerimeter = feature.perimeter
+            this.currentIsSupport = feature.support
+         } else {
+            this.reportMissingFeature(this.feature)
             this.currentFeatureColor = [1, 1, 1, 1]
-         }
-
-         try {
-            this.currentIsPerimeter = this.featureList[this.feature].perimeter
-         } catch {
-            this.reportMissingFeature(this.feature)
-            this.currentIsPerimeter = true //We want to render if we don't know
-         }
-
-         try {
-            this.currentIsSupport = this.featureList[this.feature].support
-         } catch {
-            this.reportMissingFeature(this.feature)
+            this.currentIsPerimeter = true
             this.currentIsSupport = false
          }
       }
    }
 
-   getFeatureColord(): number[] {
+   getFeatureColor(): number[] {
       return this.currentFeatureColor
    }
 
