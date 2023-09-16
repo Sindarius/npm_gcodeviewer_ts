@@ -233,6 +233,10 @@ export default class ViewerProxy {
       this.webWorker.postMessage({ type: 'setfps', fps: fps })
    }
 
+   setPerimeterOnly(perimeterOnly: boolean): void {
+      this.webWorker.postMessage({ type: 'perimeterOnly', perimeterOnly: perimeterOnly })
+   }
+
    //Used to clone the event properties out of an object so they can be sent to worker
    cloneEvent(event) {
       let cloneFieldList = event.constructor.name === 'KeyboardEvent' ? keyboardEventFields : mouseEventFields

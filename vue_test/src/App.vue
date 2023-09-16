@@ -22,6 +22,7 @@ const meshMode = ref(0)
 const progressValue = ref(100)
 const progressLabel = ref('')
 const fps = ref(30)
+const perimeterOnly = ref(false)
 
 const renderModes = [
    { label: 'Feature', value: 0 },
@@ -135,6 +136,10 @@ watch(fps, (newVal) => {
    viewer.setMaxFPS(newVal)
 })
 
+watch(perimeterOnly, (newVal) => {
+   viewer.setPerimeterOnly(newVal)
+})
+
 function reset() {
    viewer.reset()
    viewer.updateColorTest()
@@ -224,6 +229,7 @@ function lineClicked(props: any[]) {
       <v-slider v-model="filePos" class="slider-pos" :min="start" :max="end" :step="1"></v-slider>
       <v-checkbox class="alpha" v-model="alpha">Set Alpha</v-checkbox>
       <v-checkbox class="progress" v-model="progressMode">Progress Mode</v-checkbox>
+      <v-checkbox class="perimeterOnly" v-model="perimeterOnly">Perimeter Only</v-checkbox>
       <div class="progressbar" v-if="progressValue < 100">
          <v-label>{{ progressLabel }}</v-label>
          <v-progress-linear :model-value="progressValue"></v-progress-linear>
@@ -338,6 +344,14 @@ header {
    position: absolute;
    top: 10px;
    right: 500px;
+   z-index: 11;
+   color: white;
+}
+
+.perimeterOnly {
+   position: absolute;
+   top: 10px;
+   right: 600px;
    z-index: 11;
    color: white;
 }

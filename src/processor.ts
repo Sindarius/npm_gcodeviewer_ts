@@ -27,6 +27,7 @@ export default class Processor {
    focusedColorId = 0
    lastMeshMode = 0
    perimeterOnly = false
+   originalFile: string
 
    constructor() {}
 
@@ -41,6 +42,7 @@ export default class Processor {
    }
 
    async loadFile(file) {
+      this.originalFile = file
       this.cleanup()
       this.gCodeLines = []
       this.processorProperties = new ProcessorProperties() //Reset for now
@@ -336,5 +338,10 @@ export default class Processor {
 
    updateByLineNumber(lineNumber: number) {
       this.updateFilePosition(this.gCodeLines[lineNumber - 1].filePosition)
+   }
+
+   async setPerimeterOnly(perimeterOnly) {
+      this.perimeterOnly = perimeterOnly
+      await this.loadFile(this.originalFile)
    }
 }

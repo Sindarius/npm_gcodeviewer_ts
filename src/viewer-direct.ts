@@ -61,4 +61,8 @@ export default class ViewerDirect {
    setMeshMode(mode: number): void {
       this.viewer.processor.setMeshMode(mode)
    }
+
+   perimeterOnly(perimeterOnly: boolean): void {
+      this.viewer.processor.setPerimeterOnly(perimeterOnly)
+   }
 }

@@ -83,5 +83,8 @@ self.addEventListener('message', async (message) => {
       case 'setfps':
          self.viewer.setMaxFPS(message.data.fps)
          break
+      case 'perimeterOnly':
+         self.viewer.processor.setPerimeterOnly(message.data.perimeterOnly)
+         break
    }
 })
