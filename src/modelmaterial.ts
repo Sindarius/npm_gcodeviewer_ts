@@ -59,10 +59,11 @@ export default class ModelMaterial {
       flat out float focused;
       out float bDiscard;
       
-
       `)
 
       this.material.Vertex_MainBegin(`
+
+         fIsPerimeter = isPerimeter;
 
          switch(renderMode){
                case 0: 
