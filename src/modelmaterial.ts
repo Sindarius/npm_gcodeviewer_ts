@@ -52,26 +52,83 @@ export default class ModelMaterial {
       attribute float filePositionEnd;
       attribute float isPerimeter;
       attribute vec4 baseColor;
-      
-      flat out float fFilePosition;
-      flat out float fFilePositionEnd;
-      flat out vec3 vPickColor;
-      flat out float fTool;
-      flat out vec3 vFocusedPickColor;
-      flat out float fFeedRate;
+
+      flat out vec3 vDiffColor;
       flat out float fIsPerimeter;
-      flat out vec4 vBaseColor;
+      flat out float fShow;
+      flat out float focused;
+      out float bDiscard;
+      
+
       `)
 
       this.material.Vertex_MainBegin(`
-      fFilePosition = filePosition;
-      fFilePositionEnd = filePositionEnd;
-      vPickColor = pickColor;
-      fTool = floor(tool);
-      vFocusedPickColor = focusedPickColor;
-      fFeedRate = feedRate;
-      fIsPerimeter = isPerimeter;
-      vBaseColor = baseColor;
+
+         switch(renderMode){
+               case 0: 
+                  vDiffColor = baseColor.rgb; 
+               break; // use default diffuse color;
+               case 1:
+                  if(tool < 255.0) {                
+                     vDiffColor = toolColors[int(tool)].rgb;
+                  }
+                  else{
+                     vDiffColor = vec3(1,0,0); //Travel Color Make Configurable at some point
+                  }
+               break;
+               case 2:
+                  float m = (feedRate - minFeedRate) / (maxFeedRate - minFeedRate);
+                  vDiffColor = mix(vec3(0,0,1), vec3(1,0,0), m); 
+                  break;
+               case 5:
+                  vDiffColor = pickColor.rgb;
+                  break;
+            }
+
+            fShow = currentPosition - filePosition;
+            focused = 0.;
+
+            if(focusedPickColor == pickColor && !(currentPosition >= filePosition && currentPosition <= filePositionEnd)) 
+            {
+               vDiffColor = vec3(1, 1, 1) - vDiffColor.rgb;
+               focused = 1.;
+            }
+            else if (tool >= 254.0)  //Travel
+            {
+               if(fShow >= 0.0 && fShow < animationLength / 8.0) 
+               {
+                     vDiffColor = mix(vec3(1.0, 0.0, 0.0), vec3(0.5,0.0,0.0), fShow / animationLength / 2.0);
+               }
+               else
+               {
+                  bDiscard = 1.;
+               }
+            }
+            else //Extrusion
+            {
+               if (fShow >= 0.0  && fShow < animationLength) 
+               { 
+                  if(currentPosition < filePositionEnd){
+                     // float animation = smoothstep(0.0, 1.0, fract(utime / 50.0));
+                     float animation = sin(2.0 * 3.1415 * utime / 1000.0) * 0.5 + 0.5;
+                     vDiffColor = mix(vec3(0, 0, 1), vec3(0,1,0), animation);
+                  }
+                  else 
+                  {
+                     vDiffColor = mix(vec3(1, 1, 1) - vDiffColor.rgb, vDiffColor.rgb, fShow / animationLength);
+                  }
+               }
+               else if (fShow >= 0.0 && progressMode) 
+               {
+                  vDiffColor = progressColor.rgb;
+               }
+               else if(fShow < 0.0 && !alphaMode && !progressMode)
+               {
+                  bDiscard = 1.;
+               }
+            }
+
+
       `)
 
       this.material.Vertex_MainEnd(`
@@ -79,83 +136,22 @@ export default class ModelMaterial {
       `)
 
       this.material.Fragment_Definitions(`
-      flat in float fFilePosition;
-      flat in float fFilePositionEnd;
-      flat in vec3 vPickColor;
-      flat in float fTool;
-      flat in vec3 vFocusedPickColor;
-      flat in float fFeedRate;
-      flat in float fIsPerimeter;
-      flat in vec4 vBaseColor;
-      const vec3 lowerBound = vec3(0.3,0.3,0.3);
+             flat in vec3 vDiffColor;
+             flat in float fIsPerimeter;
+             flat in float fShow;
+             flat in float focused;
+             in float bDiscard;
+             const vec3 lowerBound = vec3(0.3,0.3,0.3);
+      `)
+
+      this.material.Fragment_MainBegin(`
+          if( bDiscard > 0.0) {
+               discard;
+            }
       `)
 
       this.material.Fragment_Custom_Diffuse(`
-
-      
-         switch(renderMode){
-            case 0: 
-               diffuseColor = vBaseColor.rgb; 
-            break; // use default diffuse color;
-            case 1:
-               if(fTool < 255.0) {                
-                  diffuseColor = toolColors[int(fTool)].rgb;
-               }
-               else{
-                  diffuseColor = vec3(1,0,0); //Travel Color Make Configurable at some point
-               }
-             break;
-            case 2:
-               float m = (fFeedRate - minFeedRate) / (maxFeedRate - minFeedRate);
-               diffuseColor = mix(vec3(0,0,1), vec3(1,0,0), m); 
-               break;
-            case 5:
-               diffuseColor = vPickColor.rgb;
-               break;
-         }
-
-         float fShow = currentPosition - fFilePosition;
-         bool focused = false;
-
-         if(focusedPickColor == vPickColor && !(currentPosition >= fFilePosition && currentPosition <= fFilePositionEnd)) 
-         {
-            diffuseColor = vec3(1, 1, 1) - diffuseColor.rgb;
-            focused = true;
-         }
-         else if (fTool >= 254.0)  //Travel
-         {
-            if(fShow >= 0.0 && fShow < animationLength / 8.0) 
-            {
-                  diffuseColor = mix(vec3(1.0, 0.0, 0.0), vec3(0.5,0.0,0.0), fShow / animationLength / 2.0);
-            }
-            else
-            {
-               discard;
-            }
-         }
-         else //Extrusion
-         {
-            if (fShow >= 0.0  && fShow < animationLength) 
-            { 
-               if(currentPosition < fFilePositionEnd){
-                  // float animation = smoothstep(0.0, 1.0, fract(utime / 50.0));
-                  float animation = sin(2.0 * 3.1415 * utime / 1000.0) * 0.5 + 0.5;
-                  diffuseColor = mix(vec3(0, 0, 1), vec3(0,1,0), animation);
-               }
-               else 
-               {
-                  diffuseColor = mix(vec3(1, 1, 1) - diffuseColor.rgb, diffuseColor.rgb, fShow / animationLength);
-               }
-            }
-            else if (fShow >= 0.0 && progressMode) 
-            {
-               diffuseColor = progressColor.rgb;
-            }
-            else if(fShow < 0.0 && !alphaMode && !progressMode)
-            {
-               discard;
-            }
-         }
+         diffuseColor = vDiffColor;
       `)
 
       this.material.Fragment_Before_FragColor(`
@@ -174,7 +170,7 @@ export default class ModelMaterial {
             }
          }      
 
-         if(focused) 
+         if(focused > 0.) 
          {
             color.a = 1.0;
          }
@@ -183,10 +179,6 @@ export default class ModelMaterial {
             color.a = fShow >= 0.0 || !alphaMode ? 0.99 : 0.05; 
          }
       `)
-
-      // this.material.Fragment_MainEnd(`
-      // gl_FragColor = vec4(diffuseColor.xyz, color.a);
-      // `)
 
       //Defaults
       this.material.onBindObservable.addOnce(() => {
