@@ -26,7 +26,7 @@ export default class Processor {
    maxIndex: number = 0
    focusedColorId = 0
    lastMeshMode = 0
-   perimeterOnly = true
+   perimeterOnly = false
 
    constructor() {}
 
