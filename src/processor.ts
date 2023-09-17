@@ -18,7 +18,7 @@ export default class Processor {
    processorProperties: ProcessorProperties = new ProcessorProperties()
    scene: Scene
    meshes: Mesh[] = []
-   breakPoint = 100000 // 160000000
+   breakPoint = 100000
    gpuPicker: GPUPicker
    worker: Worker
    modelMaterial: ModelMaterial[]
@@ -27,7 +27,7 @@ export default class Processor {
    focusedColorId = 0
    lastMeshMode = 0
    perimeterOnly = false
-   originalFile: string
+   originalFile: string //May or may not keep this. May force front end to reprovide or cache file.
 
    constructor() {}
 
@@ -98,6 +98,7 @@ export default class Processor {
       })
 
       this.setMeshMode(this.lastMeshMode)
+      this.scene.freezeActiveMeshes(true)
    }
 
    addNewMaterial(): ModelMaterial {
@@ -181,12 +182,14 @@ export default class Processor {
    // 1 = cyl
    // 2 = line
    setMeshMode(mode) {
+      this.scene.unfreezeActiveMeshes()
       mode = mode > 2 ? 0 : mode
       this.meshes.forEach((m) => m.setEnabled(false))
       for (let idx = mode; idx < this.meshes.length; idx += 3) {
          this.meshes[idx].setEnabled(true)
       }
       this.lastMeshMode = mode
+      this.scene.freezeActiveMeshes(true)
    }
 
    testBuildMesh(renderlines, segCount, alphaIndex): Mesh[] {
@@ -343,5 +346,9 @@ export default class Processor {
    async setPerimeterOnly(perimeterOnly) {
       this.perimeterOnly = perimeterOnly
       await this.loadFile(this.originalFile)
+   }
+
+   showSupports(show) {
+      this.modelMaterial.forEach((m) => m.showSupports(show))
    }
 }

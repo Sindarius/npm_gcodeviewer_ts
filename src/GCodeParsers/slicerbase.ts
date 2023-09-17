@@ -4,8 +4,6 @@ export default abstract class SlicerBase {
    currentFeatureColor = [1, 1, 1, 1]
    currentIsPerimeter = true
    currentIsSupport = false
-   perimeter = false
-   support = false
    missingFeatures = []
 
    constructor() {}
@@ -13,11 +11,11 @@ export default abstract class SlicerBase {
    processComment(comment: string) {}
 
    isPerimeter(): boolean {
-      return this.perimeter
+      return this.currentIsPerimeter
    }
 
    isSupport(): boolean {
-      return this.support
+      return this.currentIsSupport
    }
 
    getFeatureColor() {

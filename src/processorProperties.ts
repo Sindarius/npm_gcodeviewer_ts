@@ -40,8 +40,6 @@ export default class ProcessorProperties {
    progressAnimation: boolean = true //Formerly known as "renderAnimation"
    firstGCodeByte: number = 0
    lastGCodeByte: number = 0
-   zBelt: boolean = false
-   zBeltLength: Number = 100
    hasMixing: boolean = false
    currentWorkplaceIdx: number = 0
    workplaceOffsets: Vector3[] = []
@@ -55,9 +53,18 @@ export default class ProcessorProperties {
    slicer: SlicerBase = new GenericBase()
 
    //Used for belt processing
+   zBelt: boolean = false
+   zBeltLength: Number = 100
+   gantryAngle = (45 * Math.PI) / 180
    currentZ = 0
-   adj = 0
-   hyp = 0
+   hyp = Math.cos(this.gantryAngle)
+   adj = Math.tan(this.gantryAngle)
+
+   setGantryAngle(angle: number) {
+      this.gantryAngle = (angle * Math.PI) / 180
+      this.hyp = Math.cos(this.gantryAngle)
+      this.adj = Math.tan(this.gantryAngle)
+   }
 
    get CurrentFeedRate(): number {
       return this.currentFeedRate

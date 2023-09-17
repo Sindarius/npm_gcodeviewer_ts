@@ -43,6 +43,7 @@ export default class ModelMaterial {
          .AddUniform('progressMode', 'bool', 0)
          .AddUniform('progressColor', 'vec4', new Vector4(0, 1, 0, 1))
          .AddUniform('lineMesh', 'bool', 0)
+         .AddUniform('showSupports', 'bool', 0)
 
       this.material.Vertex_Definitions(`
       attribute float filePosition;
@@ -265,6 +266,12 @@ export default class ModelMaterial {
       this.material.onBindObservable.addOnce(() => {
          this.material.getEffect()?.setBool('lineMesh', mode)
       })
+   }
+
+   showSupports(show: boolean) {
+      // this.material.onBindObservable.addOnce(() => {
+      //    this.material.getEffect()?.setBool('showSupports', show)
+      // })
    }
 
    dispose() {
