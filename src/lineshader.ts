@@ -52,11 +52,11 @@ export default class LineShaderMaterial {
    flat out float fShow;
    flat out float focused;
 
- #include<instancesDeclaration>
+// #include<instancesDeclaration>
 
    void main()
    {
-      #include<instancesVertex>
+     #include<instancesVertex>
   
       fIsPerimeter = isPerimeter;
 
@@ -222,7 +222,6 @@ export default class LineShaderMaterial {
                'tool',
                'feedRate',
                'isPerimeter',
-               'baseColor',
             ],
             uniforms: [
                'world',
@@ -250,6 +249,7 @@ export default class LineShaderMaterial {
 
       this.material.alpha = 0.99
       this.material.forceDepthWrite = true
+      this.material.backFaceCulling = true
 
       //Set defaults
       this.material.onBindObservable.addOnce(() => {

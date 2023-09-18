@@ -34,6 +34,7 @@
   },
   "dependencies": {
     "@babylonjs/core": "^6.18.0",
+    "@babylonjs/inspector": "^6.21.0",
     "@babylonjs/materials": "^6.19.1"
   }
 }

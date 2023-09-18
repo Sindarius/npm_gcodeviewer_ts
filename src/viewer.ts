@@ -16,6 +16,9 @@ import GPUPicker from './gpupicker'
 import { PointerEventTypes } from '@babylonjs/core/Events/pointerEvents'
 import '@babylonjs/core/Rendering/'
 
+// import '@babylonjs/core/Debug/debugLayer'
+// import { Inspector } from '@babylonjs/inspector'
+
 let ColorID = [0, 0, 0]
 export default class Viewer {
    scene: Scene | undefined
@@ -38,7 +41,7 @@ export default class Viewer {
    offscreen: boolean = true
    lastFrameUpdate: number = 0
    renderTimeout: number = 1000
-   maxFrameRate = 1000 / 30
+   maxFrameRate = 1000 / 999
 
    // getBoundingInfo()
    rect = {
@@ -118,6 +121,10 @@ export default class Viewer {
       this.engine.enableOfflineSupport = false
 
       this.scene = new Scene(this.engine)
+
+      // Inspector.Show(this.scene, {
+      //    embedMode: true,
+      // })
 
       this.scene.clearColor = new Color4(0.3, 0.3, 0.3, 1)
       //this.scene.useOrderIndependentTransparency = true
