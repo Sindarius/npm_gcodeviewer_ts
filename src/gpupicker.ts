@@ -27,6 +27,7 @@ export default class GPUPicker {
       this.renderTarget.clearColor = new Color4(0, 0, 0, 0)
       this.renderTarget.refreshRate = 1
       this.scene.customRenderTargets.push(this.renderTarget)
+      console.log(this.scene.customRenderTargets)
       this.shaderMaterial = new ShaderMaterial(
          'pick_mat',
          this.scene,

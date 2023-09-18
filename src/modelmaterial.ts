@@ -17,6 +17,7 @@ export default class ModelMaterial {
       this.material = new CustomMaterial('processor_mat', this.scene)
 
       this.material.specularColor = new Color3(0.2, 0.2, 0.2)
+      this.material.emissiveColor = new Color3(0.4, 0.4, 0.4)
 
       //Alpha
       this.material.alpha = 0.99
@@ -135,6 +136,7 @@ export default class ModelMaterial {
 
       this.material.Vertex_MainEnd(`
          //vColor = vec4(1.); //prevent color from being applied against our diffuse
+
       `)
 
       this.material.Fragment_Definitions(`

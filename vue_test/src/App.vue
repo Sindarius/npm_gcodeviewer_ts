@@ -21,7 +21,7 @@ const progressMode = ref(false)
 const meshMode = ref(0)
 const progressValue = ref(100)
 const progressLabel = ref('')
-const fps = ref(30)
+const fps = ref(999)
 const perimeterOnly = ref(false)
 
 const renderModes = [

@@ -58,11 +58,15 @@ export default class ViewerDirect {
       this.viewer.processor.modelMaterial.forEach((m) => m.updateRenderMode(mode))
    }
 
+   setMaxFPS(fps: number): void {
+      this.viewer.setMaxFPS(fps)
+   }
+
    setMeshMode(mode: number): void {
       this.viewer.processor.setMeshMode(mode)
    }
 
-   perimeterOnly(perimeterOnly: boolean): void {
+   setPerimeterOnly(perimeterOnly: boolean): void {
       this.viewer.processor.setPerimeterOnly(perimeterOnly)
    }
 }

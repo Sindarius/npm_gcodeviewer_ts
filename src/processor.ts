@@ -12,6 +12,7 @@ import { colorToNum, delay, binarySearchClosest } from './util'
 import ModelMaterial from './modelmaterial'
 import { MoveData } from './GCodeLines/move'
 import { slicerFactory } from './GCodeParsers/slicerfactory'
+import LineShaderMaterial from './lineshader'
 
 export default class Processor {
    gCodeLines: Base[] = []
@@ -21,7 +22,8 @@ export default class Processor {
    breakPoint = 100000
    gpuPicker: GPUPicker
    worker: Worker
-   modelMaterial: ModelMaterial[]
+   //modelMaterial: ModelMaterial[]
+   modelMaterial: LineShaderMaterial[]
    filePosition: number = 0
    maxIndex: number = 0
    focusedColorId = 0
@@ -98,11 +100,10 @@ export default class Processor {
       })
 
       this.setMeshMode(this.lastMeshMode)
-      this.scene.freezeActiveMeshes(true)
    }
 
-   addNewMaterial(): ModelMaterial {
-      let m = new ModelMaterial(this.scene)
+   addNewMaterial(): LineShaderMaterial {
+      let m = new LineShaderMaterial(this.scene)
       this.modelMaterial.push(m)
       return m
    }
@@ -182,22 +183,21 @@ export default class Processor {
    // 1 = cyl
    // 2 = line
    setMeshMode(mode) {
-      this.scene.unfreezeActiveMeshes()
+      // this.scene.unfreezeActiveMeshes()
       mode = mode > 2 ? 0 : mode
       this.meshes.forEach((m) => m.setEnabled(false))
       for (let idx = mode; idx < this.meshes.length; idx += 3) {
          this.meshes[idx].setEnabled(true)
       }
       this.lastMeshMode = mode
-      this.scene.freezeActiveMeshes(true)
    }
 
    testBuildMesh(renderlines, segCount, alphaIndex): Mesh[] {
       let box = MeshBuilder.CreateBox('box', { width: 1, height: 1, depth: 1 }, this.scene)
       box.position = new Vector3(0, 0, 0)
-      // box.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
-      // box.bakeCurrentTransformIntoVertices()
-      // box.convertToUnIndexedMesh()
+      box.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
+      box.bakeCurrentTransformIntoVertices()
+      //box.convertToUnIndexedMesh()
 
       let cyl = MeshBuilder.CreateCylinder('cyl', { height: 1, diameter: 1 }, this.scene)
       cyl.locallyTranslate(new Vector3(0, 0, 0))
@@ -223,17 +223,17 @@ export default class Processor {
 
       box.material = this.addNewMaterial().material
       box.alphaIndex = alphaIndex
-      box.material.freeze()
+      //box.material.freeze()
 
       cyl.material = this.addNewMaterial().material
       cyl.alphaIndex = alphaIndex
-      cyl.material.freeze()
+      //cyl.material.freeze()
 
       let mm = this.addNewMaterial()
       line.alphaIndex = alphaIndex
       line.material = mm.material
-      line.material.freeze()
       mm.setLineMesh(true)
+      //line.material.freeze()
 
       //  box.name = `Mesh${this.meshes.length}}`
 
@@ -251,7 +251,7 @@ export default class Processor {
             //run all the segments
             for (let seg in arc.segments) {
                let segment = arc.segments[seg] as Move
-               let lineData = segment.renderLine(0.4, 0.3)
+               let lineData = segment.renderLine(0.38, 0.3)
                buildBuffers(lineData, arc, segIdx)
                segIdx++
             }
@@ -279,7 +279,7 @@ export default class Processor {
          m.thinInstanceSetBuffer('tool', toolData, 1, true)
          m.thinInstanceSetBuffer('feedRate', feedRate, 1, true)
          m.thinInstanceSetBuffer('isPerimeter', isPerimeter, 1, true)
-         m.freezeWorldMatrix()
+         //         m.freezeWorldMatrix()
          m.isPickable = false
       }
 
