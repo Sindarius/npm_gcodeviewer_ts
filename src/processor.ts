@@ -12,7 +12,7 @@ import { colorToNum, delay, binarySearchClosest } from './util'
 import ModelMaterial from './modelmaterial'
 import { MoveData } from './GCodeLines/move'
 import { slicerFactory } from './GCodeParsers/slicerfactory'
-import LineShaderMaterial from './lineshader'
+import LineShaderMaterial from './lineshader_v2'
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer'
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial'
 import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData'
@@ -23,11 +23,12 @@ export default class Processor {
    processorProperties: ProcessorProperties = new ProcessorProperties()
    scene: Scene
    meshes: Mesh[] = []
-   breakPoint = 500000
+   breakPoint = 100000
+
    gpuPicker: GPUPicker
    worker: Worker
    //modelMaterial: ModelMaterial[]
-   modelMaterial: LineShaderMaterial[]
+   modelMaterial: (LineShaderMaterial | ModelMaterial)[]
    filePosition: number = 0
    maxIndex: number = 0
    focusedColorId = 0
@@ -106,13 +107,20 @@ export default class Processor {
       this.setMeshMode(this.lastMeshMode)
    }
 
-   addNewMaterial(): LineShaderMaterial {
+   addNewMaterial(): LineShaderMaterial | ModelMaterial {
       let m = new LineShaderMaterial(this.scene)
+      //let m = new ModelMaterial(this.scene)
       this.modelMaterial.push(m)
       return m
    }
 
    async testRenderScene() {
+      this.worker.postMessage({
+         type: 'progress',
+         progress: 0,
+         label: 'Generating model.',
+      })
+
       const renderlines = []
       let tossCount = 0
 
@@ -151,13 +159,15 @@ export default class Processor {
             alphaIndex++
             let sl = renderlines.slice(lastRenderedIdx)
             //let rl = this.testBuildMesh(sl, segmentCount, alphaIndex)
-            let rl = this.buildMergedMesh(sl, segmentCount, alphaIndex)
+            let rl = await this.buildMergedMesh(sl, segmentCount, alphaIndex)
             this.meshes.push(...rl)
             this.gpuPicker.addToRenderList(rl[0]) //use the box mesh for all picking
             lastRenderedIdx = renderlines.length
             segmentCount = 0
-            this.scene.render() //Force a render to avoid lost context on very large models
-            await delay(0.001)
+            if (alphaIndex % 3 === 0) {
+               console.log('render')
+               this.scene.render(true, true) //Force a render to avoid lost context on very large models
+            }
             this.worker.postMessage({
                type: 'progress',
                progress: idx / this.gCodeLines.length,
@@ -169,8 +179,9 @@ export default class Processor {
       if (segmentCount > 0) {
          let sl = renderlines.slice(lastRenderedIdx)
          //let rl = this.testBuildMesh(sl, segmentCount, alphaIndex)
-         let rl = this.buildMergedMesh(sl, segmentCount, alphaIndex)
+         let rl = await this.buildMergedMesh(sl, segmentCount, alphaIndex)
          this.meshes.push(...rl)
+         //      this.scene.render(true, true)
          this.gpuPicker.addToRenderList(rl[0]) //use the box mesh for all picking
       }
 
@@ -303,11 +314,11 @@ export default class Processor {
       }
    }
 
-   buildMergedMesh(renderlines, segCount, alphaIndex): Mesh[] {
+   async buildMergedMesh(renderlines, segCount, alphaIndex): Mesh[] {
       let box = MeshBuilder.CreateBox('box', { width: 1, height: 1, depth: 1 }, this.scene)
-      //      box.position = new Vector3(0, 0, 0)
-      //      box.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
-      // box.bakeCurrentTransformIntoVertices()
+      box.position = new Vector3(0, 0, 0)
+      box.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
+      box.bakeCurrentTransformIntoVertices()
 
       box.material = this.addNewMaterial().material
 
@@ -322,12 +333,10 @@ export default class Processor {
       let baseColor = new Float32Array(vertices.length * segCount)
       let pickColor = new Float32Array(vertices.length * segCount)
 
-      let toolIdx = new Float32Array(vertexCount * segCount)
-      let filePosition = new Float32Array(vertexCount * segCount)
-      let filePositionEnd = new Float32Array(vertexCount * segCount)
-      let feedRate = new Float32Array(vertexCount * segCount)
-      let isPerimeter = new Float32Array(vertexCount * segCount)
+      let metaData = new Float32Array(vertexCount * 4 * segCount)
+      let metaData1 = new Float32Array(vertexCount * 4 * segCount)
 
+      let lastUpdate = Date.now()
       let segIdx = 0
       for (let idx = 0; idx < renderlines.length; idx++) {
          let line = renderlines[idx] as Base
@@ -337,8 +346,14 @@ export default class Processor {
             let lineData = l.renderLine(0.35, 0.2)
 
             for (let vertIdx = 0; vertIdx < vertices.length; vertIdx += 3) {
-               let v = new Vector3(vertices[vertIdx], vertices[vertIdx + 1], vertices[vertIdx + 2])
-               v = Vector3.TransformCoordinates(v, lineData.Matrix)
+               let v = new Vector3()
+               Vector3.TransformCoordinatesFromFloatsToRef(
+                  vertices[vertIdx],
+                  vertices[vertIdx + 1],
+                  vertices[vertIdx + 2],
+                  lineData.Matrix,
+                  v,
+               )
                meshVertices.set([v.x, v.y, v.z], segIdx * vertices.length + vertIdx)
                let n = new Vector3(normals[vertIdx], normals[vertIdx + 1], normals[vertIdx + 2])
                n = Vector3.TransformNormal(n, lineData.Matrix)
@@ -350,11 +365,10 @@ export default class Processor {
                   segIdx * vertices.length + vertIdx,
                )
 
-               toolIdx[(segIdx * vertices.length) / 3 + vertIdx / 3] = l.tool
-               filePosition[(segIdx * vertices.length) / 3 + vertIdx / 3] = l.filePosition
-               filePositionEnd[(segIdx * vertices.length) / 3 + vertIdx / 3] = line.filePosition + line.line.length
-               feedRate[(segIdx * vertices.length) / 3 + vertIdx / 3] = l.feedRate
-               isPerimeter[(segIdx * vertices.length) / 3 + vertIdx / 3] = l.isPerimeter ? 1 : 0
+               let vId = vertIdx / 3
+               let vPos = (segIdx * 4 * vertices.length) / 3 + vId * 4
+               metaData.set([l.tool, l.filePosition, l.filePosition + line.line.length, l.feedRate], vPos)
+               metaData1.set([l.isPerimeter ? 1 : 0, 0, 0], vPos)
             }
 
             //Update indicies
@@ -368,31 +382,23 @@ export default class Processor {
          }
       }
 
-      box.setVerticesData(VertexBuffer.PositionKind, meshVertices)
-      box.setVerticesData(VertexBuffer.NormalKind, meshNormals)
+      console.log('Transformation Time: ', Date.now() - lastUpdate)
+
+      lastUpdate = Date.now()
+
+      box.setVerticesData(VertexBuffer.PositionKind, meshVertices, false)
+      box.setVerticesData(VertexBuffer.NormalKind, meshNormals, false)
       box.setIndices(meshIndices)
       box.geometry.clearCachedData() //Clear out memory - should be in GPU at this point.
       box.setVerticesBuffer(new VertexBuffer(this.scene.getEngine(), baseColor, 'baseColor', false, false, 3))
       box.setVerticesBuffer(new VertexBuffer(this.scene.getEngine(), pickColor, 'pickColor', false, false, 3))
+      box.setVerticesBuffer(new VertexBuffer(this.scene.getEngine(), metaData, 'metaData0', false, false, 4))
+      box.setVerticesBuffer(new VertexBuffer(this.scene.getEngine(), metaData1, 'metaData1', false, false, 4))
+      this.scene.render()
+      //this.gpuPicker.addToRenderList(box)
 
-      let buffer = new Buffer(this.scene.getEngine(), toolIdx, false, 1)
-      box.setVerticesBuffer(buffer.createVertexBuffer('tool', 0, 1))
+      console.log('Set Buffer Time: ', Date.now() - lastUpdate)
 
-      buffer = new Buffer(this.scene.getEngine(), filePosition, false, 1)
-      box.setVerticesBuffer(buffer.createVertexBuffer('filePosition', 0, 1))
-
-      buffer = new Buffer(this.scene.getEngine(), filePositionEnd, false, 1)
-      box.setVerticesBuffer(buffer.createVertexBuffer('filePositionEnd', 0, 1))
-
-      buffer = new Buffer(this.scene.getEngine(), feedRate, false, 1)
-      box.setVerticesBuffer(buffer.createVertexBuffer('feedRate', 0, 1))
-
-      buffer = new Buffer(this.scene.getEngine(), isPerimeter, false, 1)
-      box.setVerticesBuffer(buffer.createVertexBuffer('isPerimeter', 0, 1))
-
-      box.geometry.clearCachedData() //Clear out memory - should be in GPU at this point.
-
-      this.gpuPicker.addToRenderList(box)
       return [new Mesh('', this.scene)] //place holder
    }
 

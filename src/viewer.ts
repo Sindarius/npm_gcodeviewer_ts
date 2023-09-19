@@ -115,7 +115,7 @@ export default class Viewer {
 
       //this will use the offscreen rendering and web worker threads
       this.engine = new Engine(this.offscreenCanvas, true, {
-         doNotHandleContextLost: true,
+         doNotHandleContextLost: false,
       }) //WebGPU does not currently have a constructor that takes offscreen canvas
 
       this.engine.enableOfflineSupport = false
