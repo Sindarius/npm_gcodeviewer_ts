@@ -1,5 +1,5 @@
 import { Vector3 } from '@babylonjs/core/Maths/math.vector'
-import Tool from './tools'
+import Tool, { tools } from './tools'
 import { Color4 } from '@babylonjs/core/Maths/math.color'
 import SlicerBase from './GCodeParsers/slicerbase'
 import GenericBase from './GCodeParsers/genericbase'
@@ -96,11 +96,7 @@ export default class ProcessorProperties {
 
    constructor() {
       this.workplaceOffsets.push(new Vector3(0, 0, 0)) //set a default workplace if we do not have workplaces
-      this.tools.push(new Tool(0, new Color4(1, 0, 0, 1))) //set a default tool if we do not have tools
-      this.tools.push(new Tool(1, new Color4(0, 1, 0, 1))) //set a default tool if we do not have tools
-      this.tools.push(new Tool(2, new Color4(0, 0, 1, 1))) //set a default tool if we do not have tools
-      this.tools.push(new Tool(3, new Color4(1, 1, 0, 1))) //set a default tool if we do not have tools
-      this.tools.push(new Tool(4, new Color4(1, 0, 1, 1))) //set a default tool if we do not have tools
+      this.tools = tools // set the tools to the default tools
       this.currentTool = this.tools[0]
    }
 }
