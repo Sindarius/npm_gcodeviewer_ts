@@ -61,7 +61,7 @@ self.addEventListener('message', async (message) => {
          await self.viewer.processor.updateColorTest()
          break
       case 'updatefileposition':
-         self.viewer.processor.updateFilePosition(message.data.position)
+         self.viewer.processor.updateFilePosition(message.data.position, message.data.animate || false)
          break
       case 'getgcodes':
          {
@@ -85,6 +85,24 @@ self.addEventListener('message', async (message) => {
          break
       case 'perimeterOnly':
          self.viewer.processor.setPerimeterOnly(message.data.perimeterOnly)
+         break
+      case 'toggleNozzle':
+         {
+            const nozzle = self.viewer.processor.getNozzle()
+            if (nozzle) {
+               if (message.data.visible) {
+                  nozzle.show()
+               } else {
+                  nozzle.hide()
+               }
+            }
+         }
+         break
+      case 'startNozzleAnimation':
+         self.viewer.processor.startNozzleAnimation()
+         break
+      case 'stopNozzleAnimation':
+         self.viewer.processor.stopNozzleAnimation()
          break
    }
 })

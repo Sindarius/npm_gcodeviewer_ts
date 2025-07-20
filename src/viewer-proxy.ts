@@ -201,8 +201,8 @@ export default class ViewerProxy {
       this.webWorker.postMessage({ type: 'updatecolortest', params: [] })
    }
 
-   updateFilePosition(filePosition: number): void {
-      this.webWorker.postMessage({ type: 'updatefileposition', position: filePosition })
+   updateFilePosition(filePosition: number, animate: boolean = false): void {
+      this.webWorker.postMessage({ type: 'updatefileposition', position: filePosition, animate: animate })
    }
 
    setRenderMode(mode: number): void {
@@ -235,6 +235,18 @@ export default class ViewerProxy {
 
    setPerimeterOnly(perimeterOnly: boolean): void {
       this.webWorker.postMessage({ type: 'perimeterOnly', perimeterOnly: perimeterOnly })
+   }
+
+   toggleNozzle(visible: boolean): void {
+      this.webWorker.postMessage({ type: 'toggleNozzle', visible: visible })
+   }
+
+   startNozzleAnimation(): void {
+      this.webWorker.postMessage({ type: 'startNozzleAnimation' })
+   }
+
+   stopNozzleAnimation(): void {
+      this.webWorker.postMessage({ type: 'stopNozzleAnimation' })
    }
 
    //Used to clone the event properties out of an object so they can be sent to worker
