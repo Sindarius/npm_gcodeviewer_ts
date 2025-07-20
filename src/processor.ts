@@ -89,10 +89,20 @@ export default class Processor {
       ) //Set it to the end
       this.gpuPicker.updateCurrentPosition(this.gCodeLines[this.gCodeLines.length - 1].filePosition)
 
+      // Ensure we have valid start/end values
+      let startByte = this.processorProperties.firstGCodeByte
+      let endByte = this.processorProperties.lastGCodeByte
+      
+      // Fallback to file bounds if no G-code lines were found
+      if (startByte === 0 && endByte === 0 && this.gCodeLines.length > 0) {
+         startByte = this.gCodeLines[0].filePosition
+         endByte = this.gCodeLines[this.gCodeLines.length - 1].filePosition
+      }
+
       this.worker.postMessage({
          type: 'fileloaded',
-         start: this.processorProperties.firstGCodeByte,
-         end: this.processorProperties.lastGCodeByte,
+         start: startByte,
+         end: endByte,
       })
 
       this.setMeshMode(this.lastMeshMode)
@@ -275,7 +285,9 @@ export default class Processor {
 
       if (segmentCount > 0) {
          let sl = renderlines.slice(lastRenderedIdx)
-         let rl = this.testBuildMesh(sl, segmentCount, alphaIndex)
+         // Use LOD for final chunk as well
+         const lodLevel = this.lodManager.getLODBySegmentCount(segmentCount)
+         let rl = this.testBuildMeshWithLOD(sl, segmentCount, alphaIndex, lodLevel)
          this.meshes.push(...rl)
          this.gpuPicker.addToRenderList(rl[0]) //use the box mesh for all picking
       }
@@ -338,7 +350,7 @@ export default class Processor {
 
       this.processRenderLines(renderlines, buffers.matrixData, buffers.colorData, buffers.pickData, 
                             buffers.filePositionData, buffers.fileEndPositionData, buffers.toolData, 
-                            buffers.feedRate, buffers.isPerimeter)
+                            buffers.feedRate, buffers.isPerimeter, line)
       
       this.copyBuffersToMesh(line, buffers.matrixData, buffers.colorData, buffers.pickData, 
                            buffers.filePositionData, buffers.fileEndPositionData, buffers.toolData, 
@@ -380,7 +392,7 @@ export default class Processor {
       mm.setLineMesh(true)
 
       this.processRenderLines(renderlines, matrixData, colorData, pickData, 
-                            filePositionData, fileEndPositionData, toolData, feedRate, isPerimeter)
+                            filePositionData, fileEndPositionData, toolData, feedRate, isPerimeter, cyl)
 
       this.copyBuffersToMesh(cyl, matrixData, colorData, pickData, 
                            filePositionData, fileEndPositionData, toolData, feedRate, isPerimeter)
@@ -536,6 +548,7 @@ export default class Processor {
    }
 
    updateFilePosition(position: number) {
+      this.filePosition = position // Store the current position
       this.modelMaterial.forEach((m) => m.updateCurrentFilePosition(position)) //Set it to the end
       this.gpuPicker.updateCurrentPosition(position)
    }
@@ -553,7 +566,8 @@ export default class Processor {
       fileEndPositionData: Float32Array, 
       toolData: Float32Array, 
       feedRate: Float32Array, 
-      isPerimeter: Float32Array
+      isPerimeter: Float32Array,
+      primaryMesh: Mesh // Added mesh parameter for Move_Thin references
    ) {
       let segIdx = 0
       for (let idx = 0; idx < renderlines.length; idx++) {
@@ -563,7 +577,7 @@ export default class Processor {
             let lineData = l.renderLine(0.4, 0.2)
             this.buildBuffersHelper(lineData, l, segIdx, matrixData, colorData, pickData, 
                                    filePositionData, fileEndPositionData, toolData, feedRate, isPerimeter)
-            this.gCodeLines[line.lineNumber - 1] = new Move_Thin(this.processorProperties, line as Move, null, idx)
+            this.gCodeLines[line.lineNumber - 1] = new Move_Thin(this.processorProperties, line as Move, primaryMesh, idx)
             segIdx++
          } else if (line.lineType === 'A') {
             let arc = line as ArcMove
@@ -574,7 +588,7 @@ export default class Processor {
                                       filePositionData, fileEndPositionData, toolData, feedRate, isPerimeter)
                segIdx++
             }
-            this.gCodeLines[line.lineNumber - 1] = new Move_Thin(this.processorProperties, line as ArcMove, null, idx)
+            this.gCodeLines[line.lineNumber - 1] = new Move_Thin(this.processorProperties, line as ArcMove, primaryMesh, idx)
          }
       }
    }

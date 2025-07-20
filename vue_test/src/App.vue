@@ -118,6 +118,7 @@ watch(progressMode, (newVal, oldVal) => {
 })
 
 watch(filePos, (newVal, oldVal) => {
+   console.log('File position changed:', newVal)
    viewer.updateFilePosition(newVal)
 })
 
@@ -225,6 +226,11 @@ function lineClicked(props: any[]) {
             :file-position="l.filePosition"
             @selected="lineClicked"
          ></GCodeLine>
+      </div>
+      <div style="position: absolute; top: 10px; left: 10px; z-index: 11">
+         <span>{{ start }}</span
+         ><br />
+         <span>{{ end }}</span>
       </div>
       <v-slider v-model="filePos" class="slider-pos" :min="start" :max="end" :step="1"></v-slider>
       <v-checkbox class="alpha" v-model="alpha">Set Alpha</v-checkbox>

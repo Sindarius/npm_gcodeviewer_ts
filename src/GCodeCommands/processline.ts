@@ -33,21 +33,37 @@ export function ProcessLine(props: ProcessorProperties, line: string): Base {
       
       // Use fast lookup for common commands
       if (commandType === 'G') {
+         let result: Base | null = null
          switch (command) {
             case 'G0':
             case 'G00':
             case 'G1':
             case 'G01':
-               return GCodeCommands.g0g1(props, line)
+               result = GCodeCommands.g0g1(props, line)
+               break
             case 'G2':
             case 'G02':
             case 'G3':
             case 'G03':
-               return GCodeCommands.g2g3(props, line)
+               result = GCodeCommands.g2g3(props, line)
+               break
             case 'G90':
-               return GCodeCommands.g90(props, line)
+               result = GCodeCommands.g90(props, line)
+               break
             case 'G91':
-               return GCodeCommands.g91(props, line)
+               result = GCodeCommands.g91(props, line)
+               break
+         }
+         
+         // Apply firstGCodeByte/lastGCodeByte logic for fast path too
+         if (result) {
+            if (props.firstGCodeByte == 0 && result.lineType == 'L') {
+               props.firstGCodeByte = result.filePosition
+            }
+            if (result.lineType == 'L') {
+               props.lastGCodeByte = result.filePosition
+            }
+            return result
          }
       }
    }
