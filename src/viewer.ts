@@ -108,7 +108,7 @@ export default class Viewer {
 
    async initEngine(useWebGPU = true) {
       if (useWebGPU === undefined) useWebGPU = false
-      console.info(`G-Code Viewer- Sindarius - 1 `)
+      console.info(`G-Code Viewer- Sindarius - 2 `)
 
       //this will use the offscreen rendering and web worker threads
       this.engine = new Engine(this.offscreenCanvas, true, {
