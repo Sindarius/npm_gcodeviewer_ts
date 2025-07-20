@@ -15,6 +15,7 @@ import { slicerFactory } from './GCodeParsers/slicerfactory'
 import LineShaderMaterial from './lineshader'
 import LODManager, { LODLevel } from './lodmanager'
 import { GCodePools } from './objectpool'
+import Nozzle from './Renderables/nozzle'
 
 export default class Processor {
    gCodeLines: Base[] = []
@@ -34,10 +35,31 @@ export default class Processor {
    originalFile: string //May or may not keep this. May force front end to reprovide or cache file.
    lodManager: LODManager
    objectPools: GCodePools
+   nozzle: Nozzle | null = null
+   // Track position data for nozzle animation since Move objects get replaced with Move_Thin
+   positionTracker: Map<number, { x: number, y: number, z: number, feedRate: number, extruding: boolean }> = new Map()
+   // Animation playback state
+   private isPlaying: boolean = false
+   private playbackTimeout: number | null = null
+   private currentAnimationPosition: number = 0
+   private sortedPositions: number[] = []
 
    constructor() {
       this.lodManager = new LODManager()
       this.objectPools = GCodePools.getInstance()
+   }
+
+   initNozzle(diameter: number = 0.4) {
+      if (this.scene) {
+         this.nozzle = new Nozzle(this.scene, diameter)
+         // Set faster animation speed for simulation
+         this.nozzle.setAnimationSpeed(10.0)
+         console.log('Nozzle initialized and ready for animation')
+      }
+   }
+
+   getNozzle(): Nozzle | null {
+      return this.nozzle
    }
 
    cleanup() {
@@ -105,6 +127,19 @@ export default class Processor {
          end: endByte,
       })
 
+      // Initialize nozzle position to start of print
+      if (this.nozzle && this.positionTracker.size > 0) {
+         const firstPosition = this.positionTracker.values().next().value
+         if (firstPosition) {
+            console.log('Initializing nozzle to first position:', firstPosition)
+            this.nozzle.setPosition({
+               x: firstPosition.x,
+               y: firstPosition.y,
+               z: firstPosition.z
+            })
+         }
+      }
+
       this.setMeshMode(this.lastMeshMode)
    }
 
@@ -112,6 +147,10 @@ export default class Processor {
       const lines = file.split('\n')
       const chunkSize = 10000 // Process 10k lines at a time
       let pos = 0
+      
+      // Clear position tracker for new file
+      this.positionTracker.clear()
+      this.sortedPositions = []
       
       for (let chunkStart = 0; chunkStart < lines.length; chunkStart += chunkSize) {
          const chunkEnd = Math.min(chunkStart + chunkSize, lines.length)
@@ -122,7 +161,24 @@ export default class Processor {
             this.processorProperties.lineNumber = idx + 1 //Use one index to match file
             this.processorProperties.filePosition = pos
             pos += line.length + 1 //Account for newlines that have been stripped
-            this.gCodeLines.push(ProcessLine(this.processorProperties, line.toUpperCase())) //uppercase all the gcode
+            
+            const gcodeLine = ProcessLine(this.processorProperties, line.toUpperCase())
+            this.gCodeLines.push(gcodeLine)
+            
+            // Store position data for nozzle tracking before objects get replaced with Move_Thin
+            if (gcodeLine.lineType === 'L') {
+               const move = gcodeLine as Move
+               if (move.end && Array.isArray(move.end) && move.end.length >= 3) {
+                  this.positionTracker.set(move.filePosition, {
+                     x: move.end[0],
+                     y: move.end[1],
+                     z: move.end[2],
+                     feedRate: move.feedRate || 1500,
+                     extruding: move.extruding
+                  })
+                  this.sortedPositions.push(move.filePosition)
+               }
+            }
          }
          
          // Report progress
@@ -140,6 +196,9 @@ export default class Processor {
       }
 
       this.worker.postMessage({ type: 'progress', progress: 1, label: 'Processing file' })
+      
+      // Sort positions for sequential playback
+      this.sortedPositions.sort((a, b) => a - b)
    }
 
    addNewMaterial(): LineShaderMaterial {
@@ -315,6 +374,9 @@ export default class Processor {
          this.meshes[idx].setEnabled(true)
       }
       this.lastMeshMode = mode
+      
+      // Refresh material states to ensure correct lighting
+      this.modelMaterial.forEach((m) => m.refreshMaterialState())
    }
 
    testBuildMeshWithLOD(renderlines, segCount, alphaIndex, lodLevel: LODLevel): Mesh[] {
@@ -331,7 +393,17 @@ export default class Processor {
    }
 
    buildLineMeshOnly(renderlines, segCount, alphaIndex): Mesh[] {
-      // Only create line mesh for performance
+      // Create separate meshes but only render the line mesh for performance
+      let box = MeshBuilder.CreateBox('box', { width: 1, height: 1, depth: 1 }, this.scene)
+      box.position = new Vector3(0, 0, 0)
+      box.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
+      box.bakeCurrentTransformIntoVertices()
+      
+      let cyl = MeshBuilder.CreateCylinder('cyl', { height: 1, diameter: 1 }, this.scene)
+      cyl.locallyTranslate(new Vector3(0, 0, 0))
+      cyl.rotate(new Vector3(0, 0, 1), Math.PI / 2, Space.WORLD)
+      cyl.bakeCurrentTransformIntoVertices()
+
       let line = MeshBuilder.CreateLines(
          'line',
          {
@@ -343,24 +415,47 @@ export default class Processor {
       // Use object pooling for better memory management
       const buffers = this.objectPools.getBuffersForSegmentCount(segCount)
 
+      // Assign materials with correct lighting settings
+      box.material = this.addNewMaterial().material // lineMesh = false by default
+      box.alphaIndex = alphaIndex
+
+      cyl.material = this.addNewMaterial().material // lineMesh = false by default  
+      cyl.alphaIndex = alphaIndex
+
       let mm = this.addNewMaterial()
       line.alphaIndex = alphaIndex
       line.material = mm.material
-      mm.setLineMesh(true)
+      mm.setLineMesh(true) // Only line mesh should have lineMesh = true
 
       this.processRenderLines(renderlines, buffers.matrixData, buffers.colorData, buffers.pickData, 
                             buffers.filePositionData, buffers.fileEndPositionData, buffers.toolData, 
-                            buffers.feedRate, buffers.isPerimeter, line)
+                            buffers.feedRate, buffers.isPerimeter, box)
       
+      // Copy buffers to all meshes
+      this.copyBuffersToMesh(box, buffers.matrixData, buffers.colorData, buffers.pickData, 
+                           buffers.filePositionData, buffers.fileEndPositionData, buffers.toolData, 
+                           buffers.feedRate, buffers.isPerimeter)
+      this.copyBuffersToMesh(cyl, buffers.matrixData, buffers.colorData, buffers.pickData, 
+                           buffers.filePositionData, buffers.fileEndPositionData, buffers.toolData, 
+                           buffers.feedRate, buffers.isPerimeter)
       this.copyBuffersToMesh(line, buffers.matrixData, buffers.colorData, buffers.pickData, 
                            buffers.filePositionData, buffers.fileEndPositionData, buffers.toolData, 
                            buffers.feedRate, buffers.isPerimeter)
 
-      return [line, line, line] // Return same mesh for all modes
+      // Disable box and cylinder initially (only line visible)
+      box.setEnabled(false)
+      cyl.setEnabled(false)
+
+      return [box, cyl, line]
    }
 
    buildMediumDetailMesh(renderlines, segCount, alphaIndex): Mesh[] {
-      // Create cylinder and line mesh only (skip box)
+      // Create all three mesh types for proper material assignment
+      let box = MeshBuilder.CreateBox('box', { width: 1, height: 1, depth: 1 }, this.scene)
+      box.position = new Vector3(0, 0, 0)
+      box.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
+      box.bakeCurrentTransformIntoVertices()
+
       let cyl = MeshBuilder.CreateCylinder('cyl', { height: 1, diameter: 1 }, this.scene)
       cyl.locallyTranslate(new Vector3(0, 0, 0))
       cyl.rotate(new Vector3(0, 0, 1), Math.PI / 2, Space.WORLD)
@@ -383,26 +478,35 @@ export default class Processor {
       let feedRate = new Float32Array(segCount)
       let isPerimeter = new Float32Array(segCount)
 
-      cyl.material = this.addNewMaterial().material
+      // Assign materials with correct lighting settings
+      box.material = this.addNewMaterial().material // lineMesh = false by default
+      box.alphaIndex = alphaIndex
+
+      cyl.material = this.addNewMaterial().material // lineMesh = false by default
       cyl.alphaIndex = alphaIndex
 
       let mm = this.addNewMaterial()
       line.alphaIndex = alphaIndex
       line.material = mm.material
-      mm.setLineMesh(true)
+      mm.setLineMesh(true) // Only line mesh should have lineMesh = true
 
       this.processRenderLines(renderlines, matrixData, colorData, pickData, 
                             filePositionData, fileEndPositionData, toolData, feedRate, isPerimeter, cyl)
 
+      // Copy buffers to all meshes
+      this.copyBuffersToMesh(box, matrixData, colorData, pickData, 
+                           filePositionData, fileEndPositionData, toolData, feedRate, isPerimeter)
       this.copyBuffersToMesh(cyl, matrixData, colorData, pickData, 
                            filePositionData, fileEndPositionData, toolData, feedRate, isPerimeter)
       this.copyBuffersToMesh(line, matrixData, colorData, pickData, 
                            filePositionData, fileEndPositionData, toolData, feedRate, isPerimeter)
 
+      // Disable all initially, setMeshMode will enable appropriate ones
+      box.setEnabled(false)
       cyl.setEnabled(false)
       line.setEnabled(false)
 
-      return [cyl, cyl, line] // Use cylinder for first two modes
+      return [box, cyl, line]
    }
 
    testBuildMesh(renderlines, segCount, alphaIndex): Mesh[] {
@@ -547,10 +651,104 @@ export default class Processor {
       this.worker.postMessage({ type: 'getgcodes', lines: lines })
    }
 
-   updateFilePosition(position: number) {
+   updateFilePosition(position: number, animate: boolean = false) {
       this.filePosition = position // Store the current position
       this.modelMaterial.forEach((m) => m.updateCurrentFilePosition(position)) //Set it to the end
       this.gpuPicker.updateCurrentPosition(position)
+      
+      // Update nozzle position based on G-code position
+      if (this.nozzle && this.positionTracker.size > 0) {
+         if (this.isPlaying && !animate) {
+            // Manual position change during animation - skip to position
+            this.skipToPosition(position)
+         } else if (!this.isPlaying) {
+            // Normal position update when not playing
+            if (animate) {
+               this.updateNozzlePositionAnimated(position)
+            } else {
+               this.updateNozzlePositionInstant(position)
+            }
+         }
+      }
+   }
+
+   private updateNozzlePositionInstant(filePosition: number) {
+      if (!this.nozzle || this.positionTracker.size === 0) return
+
+      // Find the closest position in our tracker
+      let closestPosition = null
+      let minDistance = Infinity
+      
+      for (const [pos, posData] of this.positionTracker) {
+         const distance = Math.abs(pos - filePosition)
+         if (distance < minDistance) {
+            minDistance = distance
+            closestPosition = posData
+         }
+      }
+      
+      if (closestPosition) {
+         console.log('Setting nozzle position to:', closestPosition)
+         this.nozzle.setPosition({
+            x: closestPosition.x,
+            y: closestPosition.y,
+            z: closestPosition.z
+         })
+      }
+   }
+
+   private updateNozzlePositionAnimated(filePosition: number) {
+      if (!this.nozzle || this.positionTracker.size === 0) return
+
+      // Find the closest position in our tracker
+      let closestPosition = null
+      let minDistance = Infinity
+      let closestFilePos = 0
+      
+      for (const [pos, posData] of this.positionTracker) {
+         const distance = Math.abs(pos - filePosition)
+         if (distance < minDistance) {
+            minDistance = distance
+            closestPosition = posData
+            closestFilePos = pos
+         }
+      }
+      
+      if (closestPosition) {
+         console.log('Animating nozzle to position:', closestPosition)
+         
+         // Create a fake Move object for the nozzle animation
+         const fakeMove = {
+            end: [closestPosition.x, closestPosition.y, closestPosition.z],
+            feedRate: closestPosition.feedRate,
+            extruding: closestPosition.extruding
+         }
+         
+         // Create movement and animate to it
+         const movement = this.nozzle.createMovementFromGCode(fakeMove as any, this.nozzle.getCurrentPosition())
+         console.log('Movement created:', movement)
+         this.nozzle.moveToPosition(movement)
+      }
+   }
+
+   async animateNozzleToPosition(targetPosition: number): Promise<void> {
+      if (!this.nozzle || this.gCodeLines.length === 0) return
+
+      const currentIdx = binarySearchClosest(this.gCodeLines, this.filePosition, 'filePosition')
+      const targetIdx = binarySearchClosest(this.gCodeLines, targetPosition, 'filePosition')
+      
+      // Animate through moves between current and target position
+      const startIdx = Math.min(currentIdx, targetIdx)
+      const endIdx = Math.max(currentIdx, targetIdx)
+      
+      for (let i = startIdx; i <= endIdx; i++) {
+         const gcodeLine = this.gCodeLines[i]
+         if (gcodeLine && gcodeLine.lineType === 'L') {
+            const move = gcodeLine as Move
+            const movement = this.nozzle.createMovementFromGCode(move, this.nozzle.getCurrentPosition())
+            await this.nozzle.moveToPosition(movement)
+         }
+      }
    }
 
    updateByLineNumber(lineNumber: number) {
@@ -647,5 +845,160 @@ export default class Processor {
 
    showSupports(show) {
       this.modelMaterial.forEach((m) => m.showSupports(show))
+   }
+
+   // Animation control methods
+   startNozzleAnimation(): void {
+      if (!this.nozzle || this.sortedPositions.length === 0) {
+         console.warn('Cannot start animation: nozzle or positions not available')
+         return
+      }
+      
+      if (this.isPlaying) {
+         console.log('Animation already playing, stopping first')
+         this.stopNozzleAnimation()
+      }
+      
+      this.isPlaying = true
+      this.currentAnimationPosition = 0
+      
+      console.log('Starting nozzle animation with', this.sortedPositions.length, 'positions')
+      
+      // Start immediately without await to prevent blocking
+      this.animateToNextPosition()
+   }
+
+   stopNozzleAnimation(): void {
+      console.log('Stopping nozzle animation')
+      this.isPlaying = false
+      
+      if (this.playbackTimeout) {
+         clearTimeout(this.playbackTimeout)
+         this.playbackTimeout = null
+      }
+      
+      if (this.nozzle) {
+         this.nozzle.stopAnimation()
+      }
+      
+      // Notify UI that animation stopped
+      this.worker.postMessage({
+         type: 'animationStopped'
+      })
+   }
+
+   private animateToNextPosition(): void {
+      if (!this.isPlaying || !this.nozzle) {
+         console.log('Animation stopped or nozzle not available')
+         return
+      }
+      
+      if (this.currentAnimationPosition >= this.sortedPositions.length) {
+         console.log('Animation completed')
+         this.stopNozzleAnimation()
+         return
+      }
+
+      const filePosition = this.sortedPositions[this.currentAnimationPosition]
+      const positionData = this.positionTracker.get(filePosition)
+      
+      if (positionData) {
+         console.log(`Animating to position ${this.currentAnimationPosition + 1}/${this.sortedPositions.length}:`, positionData)
+         
+         // Notify UI of position change first
+         this.worker.postMessage({
+            type: 'animationPositionUpdate',
+            position: filePosition,
+            progress: this.currentAnimationPosition / this.sortedPositions.length
+         })
+         
+         // Create movement for nozzle
+         const fakeMove = {
+            end: [positionData.x, positionData.y, positionData.z],
+            feedRate: positionData.feedRate,
+            extruding: positionData.extruding
+         }
+         
+         try {
+            const movement = this.nozzle.createMovementFromGCode(fakeMove as any, this.nozzle.getCurrentPosition())
+            
+            // Start the animation (non-blocking)
+            this.nozzle.moveToPosition(movement).then(() => {
+               // Move to next position after animation completes
+               if (this.isPlaying) {
+                  this.currentAnimationPosition++
+                  // Small delay before next animation
+                  this.playbackTimeout = window.setTimeout(() => {
+                     this.animateToNextPosition()
+                  }, 10)
+               }
+            }).catch((error) => {
+               console.error('Animation error:', error)
+               this.stopNozzleAnimation()
+            })
+         } catch (error) {
+            console.error('Error creating movement:', error)
+            // Skip this position and continue
+            this.currentAnimationPosition++
+            this.playbackTimeout = window.setTimeout(() => {
+               this.animateToNextPosition()
+            }, 10)
+         }
+      } else {
+         console.warn('No position data for file position:', filePosition)
+         // Skip this position and move to next
+         this.currentAnimationPosition++
+         this.playbackTimeout = window.setTimeout(() => {
+            this.animateToNextPosition()
+         }, 10)
+      }
+   }
+
+   isNozzleAnimationPlaying(): boolean {
+      return this.isPlaying
+   }
+
+   private skipToPosition(targetFilePosition: number): void {
+      if (!this.nozzle || this.sortedPositions.length === 0) return
+      
+      // Stop current animation
+      if (this.nozzle) {
+         this.nozzle.stopAnimation()
+      }
+      
+      // Find the closest position index in our sorted positions
+      let targetIndex = 0
+      let minDistance = Infinity
+      
+      for (let i = 0; i < this.sortedPositions.length; i++) {
+         const distance = Math.abs(this.sortedPositions[i] - targetFilePosition)
+         if (distance < minDistance) {
+            minDistance = distance
+            targetIndex = i
+         }
+      }
+      
+      // Update animation state to continue from this position
+      this.currentAnimationPosition = targetIndex
+      
+      // Set nozzle to the target position immediately
+      const positionData = this.positionTracker.get(this.sortedPositions[targetIndex])
+      if (positionData) {
+         console.log('Skipping to animation position:', targetIndex, 'at file position:', this.sortedPositions[targetIndex])
+         this.nozzle.setPosition({
+            x: positionData.x,
+            y: positionData.y,
+            z: positionData.z
+         })
+         
+         // Continue animation from this point if still playing
+         if (this.isPlaying) {
+            this.currentAnimationPosition++ // Move to next position for continuation
+            // Small delay before continuing to allow position to settle
+            this.playbackTimeout = window.setTimeout(() => {
+               this.animateToNextPosition()
+            }, 100)
+         }
+      }
    }
 }
