@@ -108,7 +108,7 @@ export default class Viewer {
 
    async initEngine(useWebGPU = true) {
       if (useWebGPU === undefined) useWebGPU = false
-      console.info(`G-Code Viewer- Sindarius - 2 `)
+      console.info(`G-Code Viewer- Sindarius - 4 `)
 
       //this will use the offscreen rendering and web worker threads
       this.engine = new Engine(this.offscreenCanvas, true, {
@@ -138,6 +138,9 @@ export default class Viewer {
          this.offscreenCanvas.width,
          this.offscreenCanvas.height,
       )
+      
+      // Initialize nozzle
+      this.processor.initNozzle(0.4)
 
       //Orbit Cam
       this.orbitCamera = new ArcRotateCamera('Camera', Math.PI / 2, 2.356194, 15, new Vector3(0, 0, 0), this.scene)
@@ -180,6 +183,13 @@ export default class Viewer {
          }
 
          this.pointLight.position = this.orbitCamera?.position ?? new Vector3(0, 0, 0)
+         
+         // Update nozzle animations
+         const nozzle = this.processor.getNozzle()
+         if (nozzle) {
+            nozzle.update()
+         }
+         
          this.scene?.render()
          this.lastFrameUpdate = Date.now()
       })
