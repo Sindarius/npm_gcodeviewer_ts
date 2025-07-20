@@ -34,6 +34,7 @@
   },
   "dependencies": {
     "@babylonjs/core": "^6.18.0",
-    "@babylonjs/materials": "^6.19.1"
+    "@babylonjs/materials": "^6.19.1",
+    "@tweenjs/tween.js": "^25.0.0"
   }
 }
