@@ -23,6 +23,9 @@ const progressValue = ref(100)
 const progressLabel = ref('')
 const fps = ref(999)
 const perimeterOnly = ref(false)
+const nozzleVisible = ref(false)
+let isPlaying = false
+let animationMode = false
 
 const renderModes = [
    { label: 'Feature', value: 0 },
@@ -68,6 +71,19 @@ onMounted(() => {
             case 'progress':
                progressValue.value = Math.floor(e.progress * 100)
                progressLabel.value = e.label
+               break
+            case 'animationPositionUpdate':
+               // Update UI position from nozzle animation
+               if (animationMode) {
+                  filePos.value = e.position
+               }
+               break
+            case 'animationStopped':
+               // Animation was stopped by the library
+               playing.value = 'mdi-play'
+               isPlaying = false
+               animationMode = false
+               console.log('Animation stopped by library')
                break
          }
       }
@@ -118,8 +134,16 @@ watch(progressMode, (newVal, oldVal) => {
 })
 
 watch(filePos, (newVal, oldVal) => {
-   console.log('File position changed:', newVal)
-   viewer.updateFilePosition(newVal)
+   console.log('File position changed:', newVal, 'isPlaying:', isPlaying, 'animationMode:', animationMode)
+   // Always allow manual position updates, even during animation (for skipping)
+   if (!animationMode || Math.abs(newVal - oldVal) > 1000) {
+      // Large position changes (likely manual) should always be processed
+      viewer.updateFilePosition(newVal, false)
+   } else if (!animationMode) {
+      // Small changes when not animating
+      viewer.updateFilePosition(newVal, false)
+   }
+   // If it's a small change during animation, ignore it (automatic update)
 })
 
 watch(
@@ -141,6 +165,10 @@ watch(perimeterOnly, (newVal) => {
    viewer.setPerimeterOnly(newVal)
 })
 
+watch(nozzleVisible, (newVal) => {
+   viewer.toggleNozzle(newVal)
+})
+
 function reset() {
    viewer.reset()
    viewer.updateColorTest()
@@ -157,16 +185,28 @@ function filePosInput() {
 let timeOutId = -1
 let lineNumber = 0
 function toggleIncrement() {
-   if (timeOutId > 0) {
-      window.clearInterval(timeOutId)
-      timeOutId = -1
+   if (isPlaying) {
+      // Stop any running animation
+      if (timeOutId > 0) {
+         window.clearInterval(timeOutId)
+         timeOutId = -1
+      }
+      
+      // Stop the nozzle animation system
+      viewer.stopNozzleAnimation()
+      
       playing.value = 'mdi-play'
+      isPlaying = false
+      animationMode = false
+      console.log('Stopped animation')
    } else {
       playing.value = 'mdi-stop'
-      timeOutId = window.setInterval(() => {
-         //viewer.goToLineNumber(lineNumber++)
-         filePos.value = Number(filePos.value) + 200
-      }, 20)
+      isPlaying = true
+      animationMode = true
+      
+      console.log('Starting nozzle animation')
+      // Start the synchronized nozzle animation system
+      viewer.startNozzleAnimation()
    }
 }
 function lineClicked(props: any[]) {
@@ -236,6 +276,7 @@ function lineClicked(props: any[]) {
       <v-checkbox class="alpha" v-model="alpha">Set Alpha</v-checkbox>
       <v-checkbox class="progress" v-model="progressMode">Progress Mode</v-checkbox>
       <v-checkbox class="perimeterOnly" v-model="perimeterOnly">Perimeter Only</v-checkbox>
+      <v-checkbox class="nozzle" v-model="nozzleVisible">Show Nozzle</v-checkbox>
       <div class="progressbar" v-if="progressValue < 100">
          <v-label>{{ progressLabel }}</v-label>
          <v-progress-linear :model-value="progressValue"></v-progress-linear>
@@ -358,6 +399,14 @@ header {
    position: absolute;
    top: 10px;
    right: 600px;
+   z-index: 11;
+   color: white;
+}
+
+.nozzle {
+   position: absolute;
+   top: 10px;
+   right: 700px;
    z-index: 11;
    color: white;
 }
