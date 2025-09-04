@@ -176,22 +176,20 @@ export default class Nozzle {
          Math.pow(movement.endPos.z - movement.startPos.z, 2)
       )
       
-      console.log(`Movement calculation: from (${movement.startPos.x}, ${movement.startPos.y}, ${movement.startPos.z}) to (${movement.endPos.x}, ${movement.endPos.y}, ${movement.endPos.z}), distance=${distance.toFixed(2)}mm`)
-      
       if (distance === 0) {
-         console.warn('Zero distance movement, using minimum duration')
          return 100 // Default short duration for zero-distance moves
       }
       
       if (movement.feedRate === 0) {
-         console.warn('Zero feedrate, using default duration')
          return 500 // Default duration when no feedrate
       }
 
-      // For simulation, use a simple duration for visible animation
-      // Make animations slower and more visible for debugging
-      const finalDuration = Math.max(500, Math.min(distance * 100, 2000)) // Slower animation
-      console.log(`Nozzle movement: distance=${distance.toFixed(2)}mm, finalDuration=${finalDuration}ms`)
+      // Calculate realistic duration based on feedrate and animation speed multiplier
+      const realDurationMs = (distance / movement.feedRate) * 60000 // Convert mm/min to ms
+      const scaledDuration = realDurationMs / this.animationSpeed
+      
+      // Clamp to reasonable bounds for visualization
+      const finalDuration = Math.max(50, Math.min(scaledDuration, 3000))
       
       return finalDuration
    }
@@ -212,7 +210,6 @@ export default class Nozzle {
          isExtruding: move.extruding
       }
       
-      console.log('Created movement:', movement)
       return movement
    }
 
@@ -262,7 +259,6 @@ export default class Nozzle {
 
             this.isAnimating = true
          } catch (error) {
-            console.error('Error starting nozzle animation:', error)
             this.currentTween = null
             this.isAnimating = false
             reject(error)

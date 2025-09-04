@@ -66,51 +66,54 @@ export class GCodePools {
    feedRatePool: ObjectPool<Float32Array>
    perimeterPool: ObjectPool<Float32Array>
 
-   // Vector pools
+   // Vector pools  
    vector3Pool: ObjectPool<number[]>
+   
+   // G-code object pools
+   movePool: ObjectPool<any>
 
    constructor() {
       // Initialize buffer pools
       this.matrixPool = new ObjectPool(
          () => new Float32Array(16 * 100000), // Default size for 100k segments
          (arr) => arr.fill(0),
-         50 // Keep max 50 arrays
+         50, // Keep max 50 arrays
       )
 
       this.colorPool = new ObjectPool(
          () => new Float32Array(4 * 100000),
          (arr) => arr.fill(0),
-         50
+         50,
       )
 
       this.pickPool = new ObjectPool(
          () => new Float32Array(3 * 100000),
          (arr) => arr.fill(0),
-         50
+         50,
       )
 
       this.positionPool = new ObjectPool(
          () => new Float32Array(100000),
          (arr) => arr.fill(0),
-         50
+         50,
       )
 
       this.toolPool = new ObjectPool(
          () => new Float32Array(100000),
          (arr) => arr.fill(0),
-         50
+         50,
       )
 
       this.feedRatePool = new ObjectPool(
          () => new Float32Array(100000),
          (arr) => arr.fill(0),
-         50
+         50,
       )
 
       this.perimeterPool = new ObjectPool(
          () => new Float32Array(100000),
          (arr) => arr.fill(0),
-         50
+         50,
       )
 
       // Vector3 pool for frequently created coordinate arrays
@@ -121,7 +124,38 @@ export class GCodePools {
             arr[1] = 0
             arr[2] = 0
          },
-         1000
+         1000,
+      )
+      
+      // Move object pool - we'll store reusable move data structures
+      this.movePool = new ObjectPool(
+         () => ({
+            tool: 0,
+            start: [0, 0, 0],
+            end: [0, 0, 0], 
+            extruding: false,
+            color: [1, 1, 1, 1],
+            feedRate: 0,
+            layerHeight: 0.2,
+            isPerimeter: false,
+            isSupport: false,
+            colorId: [0, 0, 0],
+            lineType: 'L'
+         }),
+         (obj) => {
+            obj.tool = 0
+            obj.start[0] = obj.start[1] = obj.start[2] = 0
+            obj.end[0] = obj.end[1] = obj.end[2] = 0
+            obj.extruding = false
+            obj.color[0] = obj.color[1] = obj.color[2] = obj.color[3] = 1
+            obj.feedRate = 0
+            obj.layerHeight = 0.2
+            obj.isPerimeter = false
+            obj.isSupport = false
+            obj.colorId[0] = obj.colorId[1] = obj.colorId[2] = 0
+            obj.lineType = 'L'
+         },
+         2000
       )
    }
 
@@ -133,17 +167,70 @@ export class GCodePools {
    }
 
    /**
+    * Get a pooled Move-like object
+    */
+   acquireMove(): any {
+      return this.movePool.acquire()
+   }
+   
+   /**
+    * Return a Move-like object to the pool
+    */
+   releaseMove(moveObj: any): void {
+      this.movePool.release(moveObj)
+   }
+   
+   /**
     * Get buffers for a specific segment count
     */
    getBuffersForSegmentCount(segmentCount: number) {
-      // Adjust buffer sizes based on actual need
-      const matrixBuffer = new Float32Array(16 * segmentCount)
-      const colorBuffer = new Float32Array(4 * segmentCount)
-      const pickBuffer = new Float32Array(3 * segmentCount)
-      const positionBuffer = new Float32Array(segmentCount)
-      const toolBuffer = new Float32Array(segmentCount)
-      const feedRateBuffer = new Float32Array(segmentCount)
-      const perimeterBuffer = new Float32Array(segmentCount)
+      // Use pools if available, otherwise create new buffers
+      const matrixRequired = 16 * segmentCount
+      const colorRequired = 4 * segmentCount
+      const pickRequired = 3 * segmentCount
+      
+      // Get pooled buffers or create new ones if pool buffer is too small
+      let matrixBuffer = this.matrixPool.acquire()
+      if (matrixBuffer.length < matrixRequired) {
+         this.matrixPool.release(matrixBuffer)
+         matrixBuffer = new Float32Array(matrixRequired)
+      }
+      
+      let colorBuffer = this.colorPool.acquire()
+      if (colorBuffer.length < colorRequired) {
+         this.colorPool.release(colorBuffer)
+         colorBuffer = new Float32Array(colorRequired)
+      }
+      
+      let pickBuffer = this.pickPool.acquire()
+      if (pickBuffer.length < pickRequired) {
+         this.pickPool.release(pickBuffer)
+         pickBuffer = new Float32Array(pickRequired)
+      }
+      
+      let positionBuffer = this.positionPool.acquire()
+      if (positionBuffer.length < segmentCount) {
+         this.positionPool.release(positionBuffer)
+         positionBuffer = new Float32Array(segmentCount)
+      }
+      
+      let toolBuffer = this.toolPool.acquire()
+      if (toolBuffer.length < segmentCount) {
+         this.toolPool.release(toolBuffer)
+         toolBuffer = new Float32Array(segmentCount)
+      }
+      
+      let feedRateBuffer = this.feedRatePool.acquire()
+      if (feedRateBuffer.length < segmentCount) {
+         this.feedRatePool.release(feedRateBuffer)
+         feedRateBuffer = new Float32Array(segmentCount)
+      }
+      
+      let perimeterBuffer = this.perimeterPool.acquire()
+      if (perimeterBuffer.length < segmentCount) {
+         this.perimeterPool.release(perimeterBuffer)
+         perimeterBuffer = new Float32Array(segmentCount)
+      }
 
       return {
          matrixData: matrixBuffer,
@@ -153,16 +240,36 @@ export class GCodePools {
          fileEndPositionData: new Float32Array(segmentCount),
          toolData: toolBuffer,
          feedRate: feedRateBuffer,
-         isPerimeter: perimeterBuffer
+         isPerimeter: perimeterBuffer,
       }
    }
 
    /**
-    * Release all buffers (currently just clears, could be enhanced to actually pool)
+    * Release all buffers back to their respective pools
     */
    releaseBuffers(buffers: any): void {
-      // For now, just let GC handle it
-      // In a more advanced implementation, we could return appropriately sized buffers to pools
+      if (buffers.matrixData) {
+         this.matrixPool.release(buffers.matrixData)
+      }
+      if (buffers.colorData) {
+         this.colorPool.release(buffers.colorData)
+      }
+      if (buffers.pickData) {
+         this.pickPool.release(buffers.pickData)
+      }
+      if (buffers.filePositionData) {
+         this.positionPool.release(buffers.filePositionData)
+      }
+      if (buffers.toolData) {
+         this.toolPool.release(buffers.toolData)
+      }
+      if (buffers.feedRate) {
+         this.feedRatePool.release(buffers.feedRate)
+      }
+      if (buffers.isPerimeter) {
+         this.perimeterPool.release(buffers.isPerimeter)
+      }
+      // fileEndPositionData is not pooled, let GC handle it
    }
 
    /**

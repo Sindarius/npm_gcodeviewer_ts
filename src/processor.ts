@@ -41,8 +41,10 @@ export default class Processor {
    // Animation playback state
    private isPlaying: boolean = false
    private playbackTimeout: number | null = null
-   private currentAnimationPosition: number = 0
    private sortedPositions: number[] = []
+   // Progress tracking optimization
+   private lastReportedProgress: number = 0
+   private lastReportedChunk: number = 0
 
    constructor() {
       this.lodManager = new LODManager()
@@ -131,7 +133,6 @@ export default class Processor {
       if (this.nozzle && this.positionTracker.size > 0) {
          const firstPosition = this.positionTracker.values().next().value
          if (firstPosition) {
-            console.log('Initializing nozzle to first position:', firstPosition)
             this.nozzle.setPosition({
                x: firstPosition.x,
                y: firstPosition.y,
@@ -144,13 +145,32 @@ export default class Processor {
    }
 
    private async loadFileStreamed(file: string) {
-      const lines = file.split('\n')
       const chunkSize = 10000 // Process 10k lines at a time
       let pos = 0
+      
+      // Estimate line count for pre-allocation (average ~40 chars per line)
+      const estimatedLines = Math.ceil(file.length / 40)
+      
+      // Pre-allocate arrays with estimated capacity + 20% buffer
+      const capacity = Math.ceil(estimatedLines * 1.2)
+      this.gCodeLines = [] // Start with empty array, will grow as needed
       
       // Clear position tracker for new file
       this.positionTracker.clear()
       this.sortedPositions = []
+      
+      // Reset progress tracking
+      this.lastReportedProgress = 0
+      this.lastReportedChunk = 0
+      
+      // Pre-allocate position tracking arrays
+      let estimatedMoves = Math.ceil(estimatedLines * 0.7) // ~70% of lines are moves
+      let tempPositions: number[] = new Array(estimatedMoves)
+      let tempPositionData: Array<{x: number, y: number, z: number, feedRate: number, extruding: boolean}> = new Array(estimatedMoves)
+      let positionCount = 0
+      
+      // Stream through file character by character instead of split('\n')
+      const lines = this.streamLines(file)
       
       for (let chunkStart = 0; chunkStart < lines.length; chunkStart += chunkSize) {
          const chunkEnd = Math.min(chunkStart + chunkSize, lines.length)
@@ -162,32 +182,55 @@ export default class Processor {
             this.processorProperties.filePosition = pos
             pos += line.length + 1 //Account for newlines that have been stripped
             
-            const gcodeLine = ProcessLine(this.processorProperties, line.toUpperCase())
+            const gcodeLine = ProcessLine(this.processorProperties, line)
             this.gCodeLines.push(gcodeLine)
             
-            // Store position data for nozzle tracking before objects get replaced with Move_Thin
+            // Batch store position data for nozzle tracking
             if (gcodeLine.lineType === 'L') {
                const move = gcodeLine as Move
                if (move.end && Array.isArray(move.end) && move.end.length >= 3) {
-                  this.positionTracker.set(move.filePosition, {
+                  // Expand arrays if we exceed initial estimate
+                  if (positionCount >= estimatedMoves) {
+                     const newSize = Math.ceil(estimatedMoves * 1.5)
+                     const newPositions = new Array(newSize)
+                     const newData = new Array(newSize)
+                     
+                     // Copy existing data
+                     for (let i = 0; i < positionCount; i++) {
+                        newPositions[i] = tempPositions[i]
+                        newData[i] = tempPositionData[i]
+                     }
+                     
+                     tempPositions = newPositions
+                     tempPositionData = newData
+                     estimatedMoves = newSize
+                     console.log('Expanded position arrays to', newSize, 'entries')
+                  }
+                  
+                  tempPositions[positionCount] = move.filePosition
+                  tempPositionData[positionCount] = {
                      x: move.end[0],
                      y: move.end[1],
                      z: move.end[2],
                      feedRate: move.feedRate || 1500,
                      extruding: move.extruding
-                  })
-                  this.sortedPositions.push(move.filePosition)
+                  }
+                  positionCount++
                }
             }
          }
          
-         // Report progress
+         // Report progress less frequently (every 2% or every 50k lines)
          const progress = chunkEnd / lines.length
-         this.worker.postMessage({ 
-            type: 'progress', 
-            progress: progress, 
-            label: 'Processing file' 
-         })
+         if (progress - this.lastReportedProgress >= 0.02 || chunkEnd - this.lastReportedChunk >= 50000) {
+            this.worker.postMessage({ 
+               type: 'progress', 
+               progress: progress, 
+               label: 'Processing file' 
+            })
+            this.lastReportedProgress = progress
+            this.lastReportedChunk = chunkEnd
+         }
          
          // Yield control to prevent blocking UI
          if (chunkEnd < lines.length) {
@@ -197,7 +240,19 @@ export default class Processor {
 
       this.worker.postMessage({ type: 'progress', progress: 1, label: 'Processing file' })
       
-      // Sort positions for sequential playback
+      // Batch transfer position data to final data structures
+      console.log('Transferring', positionCount, 'positions to tracker')
+      
+      // Pre-allocate final arrays with actual count
+      this.sortedPositions = new Array(positionCount)
+      
+      for (let i = 0; i < positionCount; i++) {
+         const filePos = tempPositions[i]
+         this.positionTracker.set(filePos, tempPositionData[i])
+         this.sortedPositions[i] = filePos
+      }
+      
+      // Sort positions for sequential playback (more efficient on pre-allocated array)
       this.sortedPositions.sort((a, b) => a - b)
    }
 
@@ -659,7 +714,7 @@ export default class Processor {
       // Update nozzle position based on G-code position
       if (this.nozzle && this.positionTracker.size > 0) {
          if (this.isPlaying && !animate) {
-            // Manual position change during animation - skip to position
+            // Manual position change during animation - skip to position and continue playing
             this.skipToPosition(position)
          } else if (!this.isPlaying) {
             // Normal position update when not playing
@@ -669,6 +724,7 @@ export default class Processor {
                this.updateNozzlePositionInstant(position)
             }
          }
+         // If animate is true and playing, let the animation continue naturally
       }
    }
 
@@ -688,7 +744,6 @@ export default class Processor {
       }
       
       if (closestPosition) {
-         console.log('Setting nozzle position to:', closestPosition)
          this.nozzle.setPosition({
             x: closestPosition.x,
             y: closestPosition.y,
@@ -715,8 +770,6 @@ export default class Processor {
       }
       
       if (closestPosition) {
-         console.log('Animating nozzle to position:', closestPosition)
-         
          // Create a fake Move object for the nozzle animation
          const fakeMove = {
             end: [closestPosition.x, closestPosition.y, closestPosition.z],
@@ -726,7 +779,6 @@ export default class Processor {
          
          // Create movement and animate to it
          const movement = this.nozzle.createMovementFromGCode(fakeMove as any, this.nozzle.getCurrentPosition())
-         console.log('Movement created:', movement)
          this.nozzle.moveToPosition(movement)
       }
    }
@@ -855,21 +907,75 @@ export default class Processor {
       }
       
       if (this.isPlaying) {
-         console.log('Animation already playing, stopping first')
-         this.stopNozzleAnimation()
+         console.log('Animation already playing, continuing from current position')
+         return
       }
       
-      this.isPlaying = true
-      this.currentAnimationPosition = 0
+      console.log('Starting animation from current file position:', this.filePosition)
       
-      console.log('Starting nozzle animation with', this.sortedPositions.length, 'positions')
+      this.isPlaying = true
+      
+      // Notify UI that animation started
+      this.worker.postMessage({
+         type: 'animationStarted',
+         currentPosition: this.getCurrentAnimationIndex(),
+         totalPositions: this.sortedPositions.length
+      })
       
       // Start immediately without await to prevent blocking
       this.animateToNextPosition()
    }
 
+   pauseNozzleAnimation(): void {
+      if (!this.isPlaying) {
+         console.log('Animation not playing, nothing to pause')
+         return
+      }
+      
+      this.isPlaying = false
+      
+      if (this.playbackTimeout) {
+         clearTimeout(this.playbackTimeout)
+         this.playbackTimeout = null
+      }
+      
+      if (this.nozzle) {
+         this.nozzle.stopAnimation()
+      }
+      
+      // Notify UI that animation paused
+      this.worker.postMessage({
+         type: 'animationPaused',
+         currentPosition: this.getCurrentAnimationIndex(),
+         totalPositions: this.sortedPositions.length
+      })
+   }
+
+   resumeNozzleAnimation(): void {
+      if (this.isPlaying) {
+         console.log('Animation already playing')
+         return
+      }
+      
+      if (!this.nozzle || this.sortedPositions.length === 0) {
+         console.warn('Cannot resume animation: nozzle or positions not available')
+         return
+      }
+      
+      this.isPlaying = true
+      
+      // Notify UI that animation resumed
+      this.worker.postMessage({
+         type: 'animationResumed',
+         currentPosition: this.getCurrentAnimationIndex(),
+         totalPositions: this.sortedPositions.length
+      })
+      
+      // Continue from current position
+      this.animateToNextPosition()
+   }
+
    stopNozzleAnimation(): void {
-      console.log('Stopping nozzle animation')
       this.isPlaying = false
       
       if (this.playbackTimeout) {
@@ -889,27 +995,31 @@ export default class Processor {
 
    private animateToNextPosition(): void {
       if (!this.isPlaying || !this.nozzle) {
-         console.log('Animation stopped or nozzle not available')
          return
       }
       
-      if (this.currentAnimationPosition >= this.sortedPositions.length) {
-         console.log('Animation completed')
+      const currentIndex = this.getCurrentAnimationIndex()
+      const nextIndex = currentIndex + 1
+      
+      if (nextIndex >= this.sortedPositions.length) {
          this.stopNozzleAnimation()
          return
       }
 
-      const filePosition = this.sortedPositions[this.currentAnimationPosition]
-      const positionData = this.positionTracker.get(filePosition)
+      const nextFilePosition = this.sortedPositions[nextIndex]
+      const positionData = this.positionTracker.get(nextFilePosition)
       
       if (positionData) {
-         console.log(`Animating to position ${this.currentAnimationPosition + 1}/${this.sortedPositions.length}:`, positionData)
+         // Update file position to match animation progress - but don't trigger position change events
+         this.filePosition = nextFilePosition
+         this.modelMaterial.forEach((m) => m.updateCurrentFilePosition(nextFilePosition))
+         this.gpuPicker.updateCurrentPosition(nextFilePosition)
          
-         // Notify UI of position change first
+         // Notify UI of position change
          this.worker.postMessage({
             type: 'animationPositionUpdate',
-            position: filePosition,
-            progress: this.currentAnimationPosition / this.sortedPositions.length
+            position: nextFilePosition,
+            progress: nextIndex / this.sortedPositions.length
          })
          
          // Create movement for nozzle
@@ -922,35 +1032,34 @@ export default class Processor {
          try {
             const movement = this.nozzle.createMovementFromGCode(fakeMove as any, this.nozzle.getCurrentPosition())
             
-            // Start the animation (non-blocking)
+            // Use the actual calculated duration from nozzle movement instead of fixed delay
             this.nozzle.moveToPosition(movement).then(() => {
-               // Move to next position after animation completes
                if (this.isPlaying) {
-                  this.currentAnimationPosition++
-                  // Small delay before next animation
+                  // Use minimal delay - nozzle animation duration handles timing
                   this.playbackTimeout = window.setTimeout(() => {
                      this.animateToNextPosition()
                   }, 10)
                }
-            }).catch((error) => {
-               console.error('Animation error:', error)
-               this.stopNozzleAnimation()
+            }).catch(() => {
+               if (this.isPlaying) {
+                  this.playbackTimeout = window.setTimeout(() => {
+                     this.animateToNextPosition()
+                  }, 10)
+               }
             })
-         } catch (error) {
-            console.error('Error creating movement:', error)
-            // Skip this position and continue
-            this.currentAnimationPosition++
+         } catch {
+            if (this.isPlaying) {
+               this.playbackTimeout = window.setTimeout(() => {
+                  this.animateToNextPosition()
+               }, 10)
+            }
+         }
+      } else {
+         if (this.isPlaying) {
             this.playbackTimeout = window.setTimeout(() => {
                this.animateToNextPosition()
             }, 10)
          }
-      } else {
-         console.warn('No position data for file position:', filePosition)
-         // Skip this position and move to next
-         this.currentAnimationPosition++
-         this.playbackTimeout = window.setTimeout(() => {
-            this.animateToNextPosition()
-         }, 10)
       }
    }
 
@@ -958,47 +1067,93 @@ export default class Processor {
       return this.isPlaying
    }
 
+   private getCurrentAnimationIndex(): number {
+      return this.findClosestPositionIndex(this.filePosition)
+   }
+
    private skipToPosition(targetFilePosition: number): void {
-      if (!this.nozzle || this.sortedPositions.length === 0) return
+      if (!this.nozzle || this.sortedPositions.length === 0) {
+         return
+      }
+      
+      // Clear any existing timeout first
+      if (this.playbackTimeout) {
+         clearTimeout(this.playbackTimeout)
+         this.playbackTimeout = null
+      }
       
       // Stop current animation
-      if (this.nozzle) {
-         this.nozzle.stopAnimation()
+      this.nozzle.stopAnimation()
+      
+      // Update file position - this is now the single source of truth
+      this.filePosition = targetFilePosition
+      
+      // Find the closest position data for the nozzle
+      const targetIndex = this.findClosestPositionIndex(targetFilePosition)
+      if (targetIndex >= 0 && targetIndex < this.sortedPositions.length) {
+         const positionData = this.positionTracker.get(this.sortedPositions[targetIndex])
+         if (positionData) {
+            // Set nozzle to the target position immediately
+            this.nozzle.setPosition({
+               x: positionData.x,
+               y: positionData.y,
+               z: positionData.z
+            })
+         }
       }
       
-      // Find the closest position index in our sorted positions
-      let targetIndex = 0
+      // Continue animation from this point if still playing
+      if (this.isPlaying) {
+         // Small delay before continuing to allow position to settle
+         this.playbackTimeout = window.setTimeout(() => {
+            this.animateToNextPosition()
+         }, 150)
+      }
+   }
+
+   private streamLines(file: string): string[] {
+      // Fast line splitting without creating intermediate arrays
+      const lines: string[] = []
+      let start = 0
+      
+      for (let i = 0; i < file.length; i++) {
+         if (file[i] === '\n') {
+            lines.push(file.substring(start, i))
+            start = i + 1
+         }
+      }
+      
+      // Handle last line if no trailing newline
+      if (start < file.length) {
+         lines.push(file.substring(start))
+      }
+      
+      return lines
+   }
+
+   private findClosestPositionIndex(targetFilePosition: number): number {
+      let left = 0
+      let right = this.sortedPositions.length - 1
+      let closestIndex = 0
       let minDistance = Infinity
       
-      for (let i = 0; i < this.sortedPositions.length; i++) {
-         const distance = Math.abs(this.sortedPositions[i] - targetFilePosition)
+      // Binary search for efficiency, then linear refinement for closest match
+      while (left <= right) {
+         const mid = Math.floor((left + right) / 2)
+         const distance = Math.abs(this.sortedPositions[mid] - targetFilePosition)
+         
          if (distance < minDistance) {
             minDistance = distance
-            targetIndex = i
+            closestIndex = mid
          }
-      }
-      
-      // Update animation state to continue from this position
-      this.currentAnimationPosition = targetIndex
-      
-      // Set nozzle to the target position immediately
-      const positionData = this.positionTracker.get(this.sortedPositions[targetIndex])
-      if (positionData) {
-         console.log('Skipping to animation position:', targetIndex, 'at file position:', this.sortedPositions[targetIndex])
-         this.nozzle.setPosition({
-            x: positionData.x,
-            y: positionData.y,
-            z: positionData.z
-         })
          
-         // Continue animation from this point if still playing
-         if (this.isPlaying) {
-            this.currentAnimationPosition++ // Move to next position for continuation
-            // Small delay before continuing to allow position to settle
-            this.playbackTimeout = window.setTimeout(() => {
-               this.animateToNextPosition()
-            }, 100)
+         if (this.sortedPositions[mid] < targetFilePosition) {
+            left = mid + 1
+         } else {
+            right = mid - 1
          }
       }
+      
+      return closestIndex
    }
 }

@@ -245,6 +245,14 @@ export default class ViewerProxy {
       this.webWorker.postMessage({ type: 'startNozzleAnimation' })
    }
 
+   pauseNozzleAnimation(): void {
+      this.webWorker.postMessage({ type: 'pauseNozzleAnimation' })
+   }
+
+   resumeNozzleAnimation(): void {
+      this.webWorker.postMessage({ type: 'resumeNozzleAnimation' })
+   }
+
    stopNozzleAnimation(): void {
       this.webWorker.postMessage({ type: 'stopNozzleAnimation' })
    }

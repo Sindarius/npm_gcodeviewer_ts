@@ -18,10 +18,12 @@ export default function (props: Props, line: string): Base {
 
    for (let idx = 0; idx < tokens.length; idx++) {
       let token = tokens[idx]
-      switch (token[0]) {
+      const firstChar = token[0].toUpperCase()
+      switch (firstChar) {
          case 'G':
-            if (token == 'G53') forceAbsolute = true
-            if (token == 'G1' || token == 'G01') {
+            const upperToken = token.toUpperCase()
+            if (upperToken == 'G53') forceAbsolute = true
+            if (upperToken == 'G1' || upperToken == 'G01') {
                //move.extruding = true
                props.currentTool.color.toArray(move.color)
                move.extruding = props.cncMode

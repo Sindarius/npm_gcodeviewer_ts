@@ -101,6 +101,12 @@ self.addEventListener('message', async (message) => {
       case 'startNozzleAnimation':
          self.viewer.processor.startNozzleAnimation()
          break
+      case 'pauseNozzleAnimation':
+         self.viewer.processor.pauseNozzleAnimation()
+         break
+      case 'resumeNozzleAnimation':
+         self.viewer.processor.resumeNozzleAnimation()
+         break
       case 'stopNozzleAnimation':
          self.viewer.processor.stopNozzleAnimation()
          break

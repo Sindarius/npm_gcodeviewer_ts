@@ -9,6 +9,7 @@ export default class LineShaderMaterial {
    material: ShaderMaterial
    toolBuffer: UniformBuffer
    renderMode = 0
+   isLineMesh = false // Track current lineMesh state
 
    static readonly vertexShader = `
    #define THIN_INSTANCES
@@ -257,6 +258,7 @@ export default class LineShaderMaterial {
             .getEffect()
             ?.setFloat('animationLength', 5000)
             .setVector4('progressColor', new Vector4(0, 1, 0, 1))
+            .setBool('lineMesh', false) // Default to false (lighting enabled)
       })
 
       //Per loop
@@ -334,6 +336,14 @@ export default class LineShaderMaterial {
    }
 
    setLineMesh(mode: boolean) {
+      this.isLineMesh = mode
+      
+      // Immediate update if effect is ready
+      if (this.material.getEffect()?.isReady()) {
+         this.material.getEffect()?.setBool('lineMesh', mode)
+      }
+      
+      // Also schedule update for next bind in case effect wasn't ready
       this.material.onBindObservable.addOnce(() => {
          this.material.getEffect()?.setBool('lineMesh', mode)
       })
@@ -343,6 +353,13 @@ export default class LineShaderMaterial {
       // this.material.onBindObservable.addOnce(() => {
       //    this.material.getEffect()?.setBool('showSupports', show)
       // })
+   }
+
+   refreshMaterialState() {
+      // Force refresh of the lineMesh uniform to ensure correct state
+      if (this.material.getEffect()?.isReady()) {
+         this.material.getEffect()?.setBool('lineMesh', this.isLineMesh)
+      }
    }
 
    dispose() {

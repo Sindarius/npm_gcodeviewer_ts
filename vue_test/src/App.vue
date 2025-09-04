@@ -134,7 +134,7 @@ watch(progressMode, (newVal, oldVal) => {
 })
 
 watch(filePos, (newVal, oldVal) => {
-   console.log('File position changed:', newVal, 'isPlaying:', isPlaying, 'animationMode:', animationMode)
+   //console.log('File position changed:', newVal, 'isPlaying:', isPlaying, 'animationMode:', animationMode)
    // Always allow manual position updates, even during animation (for skipping)
    if (!animationMode || Math.abs(newVal - oldVal) > 1000) {
       // Large position changes (likely manual) should always be processed
@@ -191,10 +191,10 @@ function toggleIncrement() {
          window.clearInterval(timeOutId)
          timeOutId = -1
       }
-      
+
       // Stop the nozzle animation system
       viewer.stopNozzleAnimation()
-      
+
       playing.value = 'mdi-play'
       isPlaying = false
       animationMode = false
@@ -203,7 +203,7 @@ function toggleIncrement() {
       playing.value = 'mdi-stop'
       isPlaying = true
       animationMode = true
-      
+
       console.log('Starting nozzle animation')
       // Start the synchronized nozzle animation system
       viewer.startNozzleAnimation()
