@@ -1,0 +1,36 @@
+[package]
+name = "gcode-file-processor"
+version = "0.1.0"
+edition = "2021"
+description = "High-performance G-code file processor in Rust with WebAssembly"
+license = "MIT"
+repository = "https://github.com/your-repo/gcode-file-processor"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+serde-wasm-bindgen = "0.4"
+js-sys = "0.3"
+wee_alloc = "0.4.5"
+console_error_panic_hook = "0.1.7"
+
+[dependencies.web-sys]
+version = "0.3"
+features = [
+  "console",
+  "Performance",
+]
+
+[profile.release]
+# Optimize for speed and size
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+# Enable WASM-specific optimizations
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-Oz", "--enable-mutable-globals"]

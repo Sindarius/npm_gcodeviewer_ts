@@ -214,6 +214,21 @@ export function ProcessLine(props: ProcessorProperties, line: string): Base {
             case 'G03':
                result = GCodeCommands.g2g3(props, line)
                break
+            case 'G10':
+               result = GCodeCommands.g10(props, line)
+               break
+            case 'G11':
+               result = GCodeCommands.g11(props, line)
+               break
+            case 'G20':
+               result = GCodeCommands.g20(props, line)
+               break
+            case 'G21':
+               result = GCodeCommands.g21(props, line)
+               break
+            case 'G28':
+               result = GCodeCommands.g28(props, line)
+               break
             case 'G90':
                result = GCodeCommands.g90(props, line)
                break
@@ -256,14 +271,88 @@ export function ProcessLine(props: ProcessorProperties, line: string): Base {
       case 'G03':
          result = GCodeCommands.g2g3(props, line)
          break
+      case 'G10':
+         result = GCodeCommands.g10(props, line)
+         break
+      case 'G11':
+         result = GCodeCommands.g11(props, line)
+         break
+      case 'G20':
+         result = GCodeCommands.g20(props, line)
+         break
+      case 'G21':
+         result = GCodeCommands.g21(props, line)
+         break
+      case 'G28':
+         result = GCodeCommands.g28(props, line)
+         break
+      case 'G29':
+         result = GCodeCommands.g29(props, line)
+         break
+      case 'G54':
+      case 'G55':
+      case 'G56':
+      case 'G57':
+      case 'G58':
+      case 'G59':
+      case 'G59.1':
+      case 'G59.2':
+      case 'G59.3':
+         result = GCodeCommands.workplace(props, line)
+         break
       case 'G90':
          result = GCodeCommands.g90(props, line)
          break
       case 'G91':
          result = GCodeCommands.g91(props, line)
          break
+      case 'M3':
+      case 'M4':
+         result = GCodeCommands.m3m4(props, line)
+         break
+      case 'M5':
+         result = GCodeCommands.m5(props, line)
+         break
+      case 'M17':
+         result = GCodeCommands.m17(props, line)
+         break
+      case 'M82':
+         result = GCodeCommands.m82(props, line)
+         break
+      case 'M83':
+         result = GCodeCommands.m83(props, line)
+         break
+      case 'M84':
+         result = GCodeCommands.m84(props, line)
+         break
+      case 'M92':
+         result = GCodeCommands.m92(props, line)
+         break
+      case 'M104':
+         result = GCodeCommands.m104(props, line)
+         break
+      case 'M109':
+         result = GCodeCommands.m109(props, line)
+         break
+      case 'M140':
+         result = GCodeCommands.m140(props, line)
+         break
+      case 'M190':
+         result = GCodeCommands.m190(props, line)
+         break
+      case 'M567':
+         result = GCodeCommands.m567(props, line)
+         break
+      case 'M600':
+         result = GCodeCommands.m600(props, line)
+         break
       default:
-         result = new Comment(props, line)
+         // Check for T commands (tool changes)
+         if (lastCommand.startsWith('T') && /T\d+/.test(lastCommand)) {
+            result = GCodeCommands.t(props, line)
+         } else {
+            result = new Comment(props, line)
+         }
          break
    }
 

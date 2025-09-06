@@ -5,3 +5,9 @@ cpy.bat
 cpy2.bat
 
 test.bat
+
+# Rust
+target/
+Cargo.lock
+**/*.rs.bk
+*.pdb

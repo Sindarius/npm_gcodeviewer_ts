@@ -100,3 +100,4 @@ The codebase includes several performance optimizations implemented in phases:
 - LOD system automatically adapts to file size and hardware performance
 - Object pools are singleton instances shared across processor instances
 - Streaming chunk size (10k lines) can be adjusted based on hardware capabilities
+- 1 is not an issue, we flip the coordinate because in 3d printing Z is up and down where Y in the bablyon coordinate system is up and down
