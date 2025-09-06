@@ -16,6 +16,7 @@ import LineShaderMaterial from './lineshader'
 import LODManager, { LODLevel } from './lodmanager'
 import { GCodePools } from './objectpool'
 import Nozzle from './Renderables/nozzle'
+import { WasmProcessor } from './wasmprocessor'
 
 export default class Processor {
    gCodeLines: Base[] = []
@@ -45,10 +46,55 @@ export default class Processor {
    // Progress tracking optimization
    private lastReportedProgress: number = 0
    private lastReportedChunk: number = 0
+   // WASM processor for fast parsing
+   private wasmProcessor: WasmProcessor | null = null
+   // Processing method tracking
+   private lastProcessingMethod: 'typescript' | 'wasm' | 'hybrid' | 'none' = 'none'
+   private processingStats: {
+      method: string;
+      wasmEnabled: boolean;
+      wasmVersion?: string;
+      totalTime?: number;
+      wasmTime?: number;
+      typescriptTime?: number;
+      linesProcessed?: number;
+      movesFound?: number;
+      positionsExtracted?: number;
+   } = { method: 'none', wasmEnabled: false }
 
    constructor() {
       this.lodManager = new LODManager()
       this.objectPools = GCodePools.getInstance()
+   }
+
+   async enableWasmProcessing(): Promise<void> {
+      if (!this.wasmProcessor) {
+         this.wasmProcessor = new WasmProcessor()
+         await this.wasmProcessor.initialize()
+         this.processingStats.wasmEnabled = true
+         console.log('WASM processing enabled for G-code parsing')
+      }
+   }
+
+   getProcessingMethod(): string {
+      return this.lastProcessingMethod
+   }
+
+   getProcessingStats() {
+      return { ...this.processingStats }
+   }
+
+   isWasmEnabled(): boolean {
+      return this.wasmProcessor !== null && this.processingStats.wasmEnabled
+   }
+
+   private async getWasmVersion(): Promise<string> {
+      try {
+         const { get_version } = await import('../WASM_FileProcessor/pkg/gcode_file_processor')
+         return get_version()
+      } catch {
+         return 'unknown'
+      }
    }
 
    initNozzle(diameter: number = 0.4) {
@@ -72,6 +118,16 @@ export default class Processor {
       }
       this.meshes = []
       this.modelMaterial = []
+      
+      // Note: Don't dispose WASM processor here - it should persist across file loads
+   }
+
+   dispose() {
+      // Clean up WASM processor only when processor itself is disposed
+      if (this.wasmProcessor) {
+         this.wasmProcessor.dispose()
+         this.wasmProcessor = null
+      }
    }
 
    async loadFile(file) {
@@ -80,10 +136,43 @@ export default class Processor {
       this.gCodeLines = []
       this.processorProperties = new ProcessorProperties() //Reset for now
       this.processorProperties.slicer = slicerFactory(file)
+      
+      // Reset processing stats
+      const startTime = performance.now()
+      this.processingStats = {
+         method: 'none',
+         wasmEnabled: this.wasmProcessor !== null,
+         wasmVersion: this.wasmProcessor ? await this.getWasmVersion() : undefined,
+         linesProcessed: 0,
+         movesFound: 0,
+         positionsExtracted: 0
+      }
+      
       console.log('Processing file')
       
-      // Use streaming approach for better performance
-      await this.loadFileStreamed(file)
+      // Try WASM processing first for better performance, fallback to TypeScript
+      if (this.wasmProcessor) {
+         await this.loadFileWithWasm(file)
+      } else {
+         console.log('Using TypeScript parser (WASM not enabled)')
+         this.lastProcessingMethod = 'typescript'
+         this.processingStats.method = 'typescript'
+         await this.loadFileStreamed(file)
+      }
+      
+      // Calculate total processing time
+      this.processingStats.totalTime = performance.now() - startTime
+      
+      // Send processing complete event with statistics
+      this.worker.postMessage({
+         type: 'processingComplete',
+         stats: this.getProcessingStats()
+      })
+      
+      // Log final processing summary
+      const totalLines = this.processingStats.linesProcessed || this.gCodeLines.length
+      const processingSpeed = totalLines / ((this.processingStats.totalTime || 1) / 1000)
+      console.info(`📊 Processing Complete: ${this.processingStats.method.toUpperCase()} method, ${totalLines.toLocaleString()} lines in ${(this.processingStats.totalTime || 0).toFixed(0)}ms (${Math.round(processingSpeed).toLocaleString()} lines/sec)`)
 
       console.info('File Loaded.... Rendering Vertices')
       await this.testRenderSceneProgressive()
@@ -147,6 +236,12 @@ export default class Processor {
    private async loadFileStreamed(file: string) {
       const chunkSize = 10000 // Process 10k lines at a time
       let pos = 0
+      
+      // Track TypeScript processing if not already set
+      if (this.lastProcessingMethod === 'none') {
+         this.lastProcessingMethod = 'typescript'
+         this.processingStats.method = 'typescript'
+      }
       
       // Estimate line count for pre-allocation (average ~40 chars per line)
       const estimatedLines = Math.ceil(file.length / 40)
@@ -254,6 +349,143 @@ export default class Processor {
       
       // Sort positions for sequential playback (more efficient on pre-allocated array)
       this.sortedPositions.sort((a, b) => a - b)
+   }
+
+   private async loadFileWithWasm(file: string) {
+      console.log('🚀 Using WASM parser for fast processing')
+      
+      try {
+         const wasmStartTime = performance.now()
+         
+         // Process file with WASM for position extraction and basic analysis
+         const result = await this.wasmProcessor!.processFile(
+            file, 
+            (progress: number, label: string) => {
+               this.worker.postMessage({ 
+                  type: 'progress', 
+                  progress: progress, 
+                  label: `WASM: ${label}`
+               })
+            }
+         )
+
+         const wasmEndTime = performance.now()
+         this.processingStats.wasmTime = wasmEndTime - wasmStartTime
+
+         if (!result.success) {
+            console.warn('❌ WASM processing failed, falling back to TypeScript parser:', result.errorMessage)
+            this.lastProcessingMethod = 'typescript'
+            this.processingStats.method = 'typescript-fallback'
+            await this.loadFileStreamed(file)
+            return
+         }
+
+         const linesPerSecond = Math.round(result.lineCount / (result.processingTimeMs / 1000))
+         console.log(`✅ WASM processed ${result.lineCount.toLocaleString()} lines with ${result.moveCount.toLocaleString()} moves in ${result.processingTimeMs}ms (${linesPerSecond.toLocaleString()} lines/sec)`)
+
+         // Update processing statistics
+         this.processingStats.linesProcessed = result.lineCount
+         this.processingStats.movesFound = result.moveCount
+         this.lastProcessingMethod = 'hybrid'
+         this.processingStats.method = 'hybrid'
+
+         // Get position data from WASM
+         const sortedPositions = this.wasmProcessor!.getSortedPositions()
+         this.positionTracker.clear()
+         this.sortedPositions = Array.from(sortedPositions)
+         this.processingStats.positionsExtracted = sortedPositions.length
+
+         // Build position tracker from WASM data
+         for (const pos of sortedPositions) {
+            const posData = this.wasmProcessor!.getPositionData(pos)
+            if (posData) {
+               this.positionTracker.set(pos, posData)
+            }
+         }
+
+         // Still need to parse lines with TypeScript for full object creation and rendering
+         // but now we have fast position data from WASM
+         const tsStartTime = performance.now()
+         console.log('🔧 Building TypeScript G-code objects for rendering...')
+         
+         // Reset processor state for TypeScript parsing phase
+         this.processorProperties = new ProcessorProperties()
+         this.processorProperties.slicer = slicerFactory(file)
+         
+         await this.loadFileStreamedWithPositions(file)
+         this.processingStats.typescriptTime = performance.now() - tsStartTime
+
+         // Report final performance comparison
+         const totalWasmTime = (this.processingStats.wasmTime || 0) + (this.processingStats.typescriptTime || 0)
+         const efficiency = this.processingStats.wasmTime ? Math.round((this.processingStats.wasmTime / totalWasmTime) * 100) : 0
+         console.log(`🎯 Hybrid processing complete - WASM: ${efficiency}%, TypeScript: ${100-efficiency}%`)
+
+      } catch (error) {
+         console.error('💥 WASM processing error, falling back to TypeScript parser:', error)
+         this.lastProcessingMethod = 'typescript'
+         this.processingStats.method = 'typescript-fallback'
+         await this.loadFileStreamed(file)
+      }
+   }
+
+   private async loadFileStreamedWithPositions(file: string) {
+      // Lightweight version of loadFileStreamed that leverages WASM position data
+      const chunkSize = 10000
+      let pos = 0
+      
+      const lines = this.streamLines(file)
+      
+      // Reset processor properties for TypeScript processing
+      this.processorProperties.lineNumber = 0
+      this.processorProperties.filePosition = 0
+      
+      for (let chunkStart = 0; chunkStart < lines.length; chunkStart += chunkSize) {
+         const chunkEnd = Math.min(chunkStart + chunkSize, lines.length)
+         
+         // Process chunk with error handling
+         for (let idx = chunkStart; idx < chunkEnd; idx++) {
+            try {
+               const line = lines[idx]
+               this.processorProperties.lineNumber = idx + 1
+               this.processorProperties.filePosition = pos
+               pos += line.length + 1
+               
+               // Skip temperature commands that aren't visualized (M104, M109, M140, M190, etc.)
+               const trimmedLine = line.trim().toUpperCase()
+               if (trimmedLine.startsWith('M104') || trimmedLine.startsWith('M109') || 
+                   trimmedLine.startsWith('M140') || trimmedLine.startsWith('M190') ||
+                   trimmedLine.startsWith('M155')) {
+                  // Create a simple comment object for temperature commands to maintain line count
+                  const gcodeLine = ProcessLine(this.processorProperties, ';' + line)
+                  this.gCodeLines.push(gcodeLine)
+                  continue
+               }
+               
+               const gcodeLine = ProcessLine(this.processorProperties, line)
+               this.gCodeLines.push(gcodeLine)
+            } catch (error) {
+               console.error(`Error processing line ${idx + 1}: "${lines[idx]}"`, error)
+               // Continue processing other lines
+            }
+         }
+         
+         // Report progress less frequently
+         const progress = chunkEnd / lines.length
+         if (progress - this.lastReportedProgress >= 0.02 || chunkEnd - this.lastReportedChunk >= 50000) {
+            this.worker.postMessage({ 
+               type: 'progress', 
+               progress: progress, 
+               label: 'Building render objects' 
+            })
+            this.lastReportedProgress = progress
+            this.lastReportedChunk = chunkEnd
+         }
+         
+         // Yield control
+         if (chunkEnd < lines.length) {
+            await new Promise(resolve => setTimeout(resolve, 0))
+         }
+      }
    }
 
    addNewMaterial(): LineShaderMaterial {
@@ -824,6 +1056,11 @@ export default class Processor {
          let line = renderlines[idx] as Base
          if (line.lineType === 'L' || line.lineType === 'T') {
             let l = line as Move
+            // Safety check for renderLine method
+            if (!l.renderLine || typeof l.renderLine !== 'function') {
+               console.warn(`Line ${idx} (type ${line.lineType}) missing renderLine method, skipping`)
+               continue
+            }
             let lineData = l.renderLine(0.4, 0.2)
             this.buildBuffersHelper(lineData, l, segIdx, matrixData, colorData, pickData, 
                                    filePositionData, fileEndPositionData, toolData, feedRate, isPerimeter)
@@ -833,6 +1070,11 @@ export default class Processor {
             let arc = line as ArcMove
             for (let seg in arc.segments) {
                let segment = arc.segments[seg] as Move
+               // Safety check for arc segment renderLine method
+               if (!segment.renderLine || typeof segment.renderLine !== 'function') {
+                  console.warn(`Arc segment missing renderLine method, skipping`)
+                  continue
+               }
                let lineData = segment.renderLine(0.38, 0.3)
                this.buildBuffersHelper(lineData, arc, segIdx, matrixData, colorData, pickData, 
                                       filePositionData, fileEndPositionData, toolData, feedRate, isPerimeter)

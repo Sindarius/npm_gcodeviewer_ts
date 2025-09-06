@@ -257,6 +257,40 @@ export default class ViewerProxy {
       this.webWorker.postMessage({ type: 'stopNozzleAnimation' })
    }
 
+   enableWasmProcessing(): Promise<void> {
+      return new Promise((resolve, reject) => {
+         // Set up one-time message handler for WASM initialization result
+         const handleWasmInit = (e: MessageEvent) => {
+            if (e.data.type === 'wasmInitialized') {
+               this.webWorker.removeEventListener('message', handleWasmInit)
+               if (e.data.success) {
+                  resolve()
+               } else {
+                  reject(new Error(e.data.error || 'WASM initialization failed'))
+               }
+            }
+         }
+         
+         this.webWorker.addEventListener('message', handleWasmInit)
+         this.webWorker.postMessage({ type: 'enableWasmProcessing' })
+      })
+   }
+
+   getProcessingStats(): Promise<any> {
+      return new Promise((resolve) => {
+         // Set up one-time message handler for processing stats
+         const handleStats = (e: MessageEvent) => {
+            if (e.data.type === 'processingStatsResponse') {
+               this.webWorker.removeEventListener('message', handleStats)
+               resolve(e.data.stats)
+            }
+         }
+         
+         this.webWorker.addEventListener('message', handleStats)
+         this.webWorker.postMessage({ type: 'getProcessingStats' })
+      })
+   }
+
    //Used to clone the event properties out of an object so they can be sent to worker
    cloneEvent(event) {
       let cloneFieldList = event.constructor.name === 'KeyboardEvent' ? keyboardEventFields : mouseEventFields

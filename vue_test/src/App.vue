@@ -27,6 +27,20 @@ const nozzleVisible = ref(false)
 let isPlaying = false
 let animationMode = false
 
+// Processing stats
+const processingStats = ref({
+  method: 'none',
+  wasmEnabled: false,
+  wasmVersion: '',
+  totalTime: 0,
+  wasmTime: 0,
+  typescriptTime: 0,
+  linesProcessed: 0,
+  movesFound: 0,
+  positionsExtracted: 0
+})
+const showDebugPanel = ref(false)
+
 const renderModes = [
    { label: 'Feature', value: 0 },
    { label: 'Tool', value: 1 },
@@ -47,10 +61,19 @@ const fpsValues = [
    { label: '15', value: 15 },
 ]
 
-onMounted(() => {
+onMounted(async () => {
    if (viewercanvas.value != null) {
       viewer = new Viewer_Inst(viewercanvas.value)
       viewer.init()
+      
+      // Enable WASM processing for better performance
+      try {
+         await viewer.enableWasmProcessing()
+         console.log('WASM processing enabled in Vue app')
+      } catch (error) {
+         console.warn('Failed to enable WASM processing:', error)
+      }
+      
       viewer.passThru = (e) => {
          switch (e.type) {
             case 'currentline':
@@ -85,12 +108,31 @@ onMounted(() => {
                animationMode = false
                console.log('Animation stopped by library')
                break
+            case 'processingComplete':
+               // Update processing stats from the event
+               if (e.stats) {
+                  processingStats.value = { ...e.stats }
+                  console.log('Processing stats updated:', processingStats.value)
+               }
+               break
          }
       }
    }
 })
 
 onUnmounted(() => {})
+
+async function refreshProcessingStats() {
+   if (viewer && viewer.getProcessingStats) {
+      try {
+         const stats = await viewer.getProcessingStats()
+         processingStats.value = { ...stats }
+         console.log('Manually refreshed processing stats:', stats)
+      } catch (error) {
+         console.warn('Failed to get processing stats:', error)
+      }
+   }
+}
 
 async function openLocalFile(file: File): Promise<void> {
    if (!file) return
@@ -212,6 +254,24 @@ function toggleIncrement() {
 function lineClicked(props: any[]) {
    filePos.value = props[0]
 }
+
+function getProcessingMethodColor(method: string): string {
+   switch (method) {
+      case 'hybrid': return 'success'
+      case 'wasm': return 'info'
+      case 'typescript': return 'warning'
+      case 'typescript-fallback': return 'error'
+      default: return 'info'
+   }
+}
+
+function getProcessingSpeed(): string {
+   if (!processingStats.value.linesProcessed || !processingStats.value.totalTime) {
+      return '0 lines/s'
+   }
+   const speed = Math.round(processingStats.value.linesProcessed / (processingStats.value.totalTime / 1000))
+   return `${speed.toLocaleString()} lines/s`
+}
 </script>
 
 <template>
@@ -277,6 +337,99 @@ function lineClicked(props: any[]) {
       <v-checkbox class="progress" v-model="progressMode">Progress Mode</v-checkbox>
       <v-checkbox class="perimeterOnly" v-model="perimeterOnly">Perimeter Only</v-checkbox>
       <v-checkbox class="nozzle" v-model="nozzleVisible">Show Nozzle</v-checkbox>
+      <v-checkbox class="debug-panel" v-model="showDebugPanel">Show Debug Panel</v-checkbox>
+      
+      <!-- Debug Panel -->
+      <div v-if="showDebugPanel" class="debug-panel-container">
+         <v-card class="debug-card" elevation="3">
+            <v-card-title class="debug-title">
+               <v-icon>mdi-bug</v-icon>
+               Processing Debug Info
+               <v-btn size="small" @click="refreshProcessingStats" variant="outlined">
+                  <v-icon>mdi-refresh</v-icon> Refresh
+               </v-btn>
+            </v-card-title>
+            <v-card-text>
+               <v-row dense>
+                  <v-col cols="12" md="6">
+                     <v-alert 
+                        :type="processingStats.wasmEnabled ? 'success' : 'warning'" 
+                        density="compact"
+                        :text="`WASM: ${processingStats.wasmEnabled ? 'Enabled' : 'Disabled'}`"
+                        variant="tonal"
+                     ></v-alert>
+                  </v-col>
+                  <v-col cols="12" md="6">
+                     <v-alert 
+                        :type="getProcessingMethodColor(processingStats.method)" 
+                        density="compact"
+                        :text="`Method: ${processingStats.method.toUpperCase()}`"
+                        variant="tonal"
+                     ></v-alert>
+                  </v-col>
+               </v-row>
+               
+               <v-divider class="my-2"></v-divider>
+               
+               <v-row dense v-if="processingStats.wasmVersion">
+                  <v-col cols="12">
+                     <strong>WASM Version:</strong> {{ processingStats.wasmVersion }}
+                  </v-col>
+               </v-row>
+               
+               <v-row dense v-if="processingStats.linesProcessed > 0">
+                  <v-col cols="6" md="3">
+                     <div class="stat-item">
+                        <div class="stat-label">Lines</div>
+                        <div class="stat-value">{{ processingStats.linesProcessed?.toLocaleString() || 0 }}</div>
+                     </div>
+                  </v-col>
+                  <v-col cols="6" md="3">
+                     <div class="stat-item">
+                        <div class="stat-label">Moves</div>
+                        <div class="stat-value">{{ processingStats.movesFound?.toLocaleString() || 0 }}</div>
+                     </div>
+                  </v-col>
+                  <v-col cols="6" md="3">
+                     <div class="stat-item">
+                        <div class="stat-label">Positions</div>
+                        <div class="stat-value">{{ processingStats.positionsExtracted?.toLocaleString() || 0 }}</div>
+                     </div>
+                  </v-col>
+                  <v-col cols="6" md="3">
+                     <div class="stat-item">
+                        <div class="stat-label">Speed</div>
+                        <div class="stat-value">{{ getProcessingSpeed() }}</div>
+                     </div>
+                  </v-col>
+               </v-row>
+               
+               <v-divider class="my-2" v-if="processingStats.totalTime > 0"></v-divider>
+               
+               <v-row dense v-if="processingStats.totalTime > 0">
+                  <v-col cols="4">
+                     <div class="stat-item">
+                        <div class="stat-label">Total Time</div>
+                        <div class="stat-value">{{ Math.round(processingStats.totalTime || 0) }}ms</div>
+                     </div>
+                  </v-col>
+                  <v-col cols="4" v-if="processingStats.wasmTime > 0">
+                     <div class="stat-item">
+                        <div class="stat-label">WASM Time</div>
+                        <div class="stat-value">{{ Math.round(processingStats.wasmTime || 0) }}ms</div>
+                     </div>
+                  </v-col>
+                  <v-col cols="4" v-if="processingStats.typescriptTime > 0">
+                     <div class="stat-item">
+                        <div class="stat-label">TS Time</div>
+                        <div class="stat-value">{{ Math.round(processingStats.typescriptTime || 0) }}ms</div>
+                     </div>
+                  </v-col>
+               </v-row>
+            </v-card-text>
+         </v-card>
+      </div>
+      
       <div class="progressbar" v-if="progressValue < 100">
          <v-label>{{ progressLabel }}</v-label>
          <v-progress-linear :model-value="progressValue"></v-progress-linear>
@@ -435,6 +588,57 @@ header {
    right: 10px;
    z-index: 11;
    width: 300px;
+   color: white;
+}
+
+.debug-panel {
+   position: absolute;
+   top: 10px;
+   right: 800px;
+   z-index: 11;
+   color: white;
+}
+
+.debug-panel-container {
+   position: absolute;
+   top: 60px;
+   left: 10px;
+   z-index: 12;
+   width: 500px;
+   max-height: 400px;
+   overflow-y: auto;
+}
+
+.debug-card {
+   background: rgba(0, 0, 0, 0.9) !important;
+   color: white;
+}
+
+.debug-title {
+   display: flex;
+   align-items: center;
+   gap: 8px;
+   padding: 12px 16px;
+}
+
+.debug-title .v-btn {
+   margin-left: auto;
+}
+
+.stat-item {
+   text-align: center;
+   padding: 8px;
+}
+
+.stat-label {
+   font-size: 0.8em;
+   color: rgba(255, 255, 255, 0.7);
+   margin-bottom: 4px;
+}
+
+.stat-value {
+   font-size: 1.1em;
+   font-weight: bold;
    color: white;
 }
 </style>

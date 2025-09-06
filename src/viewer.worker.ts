@@ -110,5 +110,23 @@ self.addEventListener('message', async (message) => {
       case 'stopNozzleAnimation':
          self.viewer.processor.stopNozzleAnimation()
          break
+      case 'enableWasmProcessing':
+         try {
+            await self.viewer.processor.enableWasmProcessing()
+            self.postMessage({ type: 'wasmInitialized', success: true })
+         } catch (error) {
+            self.postMessage({ 
+               type: 'wasmInitialized', 
+               success: false, 
+               error: error.message 
+            })
+         }
+         break
+      case 'getProcessingStats':
+         self.postMessage({ 
+            type: 'processingStatsResponse', 
+            stats: self.viewer.processor.getProcessingStats() 
+         })
+         break
    }
 })
