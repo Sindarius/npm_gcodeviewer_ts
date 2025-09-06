@@ -32,7 +32,41 @@ export default class PrusaSlicer extends SlicerBase {
    processComment(comment: string) {
       if (comment.startsWith(';TYPE:')) {
          this.feature = comment.substring(6).trim()
-         let feature = this.featureList[this.feature]
+         // Normalize: uppercase and collapse/harmonize separators
+         const key = this.feature
+            .toUpperCase()
+            .replace(/[\-_]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+
+         // Try direct lookup
+         let feature = this.featureList[key]
+
+         // Heuristics for known synonyms/variants
+         if (!feature) {
+            if (key.includes('TOP') && key.includes('SOLID') && key.includes('INFILL')) {
+               feature = this.featureList['TOP SOLID INFILL']
+            } else if (key.includes('SOLID') && key.includes('INFILL')) {
+               feature = this.featureList['SOLID INFILL']
+            } else if (key.includes('BRIDGE') && key.includes('INFILL')) {
+               feature = this.featureList['BRIDGE INFILL']
+            } else if (key.includes('GAP') && key.includes('FILL')) {
+               feature = this.featureList['GAP FILL']
+            } else if (key.includes('EXTERNAL') && key.includes('PERIMETER')) {
+               feature = this.featureList['EXTERNAL PERIMETER']
+            } else if (key.includes('INTERNAL') && key.includes('INFILL')) {
+               feature = this.featureList['INTERNAL INFILL']
+            } else if (key.includes('SUPPORT') && key.includes('INTERFACE')) {
+               feature = this.featureList['SUPPORT MATERIAL INTERFACE']
+                  || this.featureList['SUPPORTED MATERIAL INTERFACE']
+            } else if (key.includes('SUPPORT')) {
+               feature = this.featureList['SUPPORT MATERIAL']
+                  || this.featureList['SUPPORTED MATERIAL']
+            } else if (key.includes('SKIRT') || key.includes('BRIM')) {
+               feature = this.featureList['SKIRT/BRIM'] || this.featureList['SKIRT']
+            }
+         }
+
          if (feature) {
             this.currentFeatureColor = feature.color
             this.currentIsPerimeter = feature.perimeter

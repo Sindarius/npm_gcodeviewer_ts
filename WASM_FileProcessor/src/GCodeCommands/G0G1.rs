@@ -77,10 +77,11 @@ pub fn parse_g0_g1_move(
                         y = new_y;
                         z = props.current_z + new_y * props.adj;
                     } else {
-                        y = if props.absolute_positioning || force_absolute {
+                        // CRITICAL FIX: Y coordinate goes to Z position (matching TypeScript line 47-50)
+                        z = if props.absolute_positioning || force_absolute {
                             value + props.current_workplace().y
                         } else {
-                            props.current_position.y + value
+                            props.current_position.z + value
                         };
                     }
                 }
@@ -90,10 +91,11 @@ pub fn parse_g0_g1_move(
                         props.current_z = -value;
                         z = props.current_z + y * props.adj;
                     } else {
-                        z = if props.absolute_positioning || force_absolute {
+                        // CRITICAL FIX: Z coordinate goes to Y position (matching TypeScript line 58-61)
+                        y = if props.absolute_positioning || force_absolute {
                             value + props.current_workplace().z
                         } else {
-                            props.current_position.z + value
+                            props.current_position.y + value
                         };
                     }
                 }
@@ -116,19 +118,31 @@ pub fn parse_g0_g1_move(
         }
     }
     
-    // Update processor state
+    // Update processor state - coordinate swap now happens during parsing (above)
     props.current_position.x = x;
-    props.current_position.y = y;
-    props.current_position.z = z;
+    props.current_position.y = y;  // Already swapped during parsing
+    props.current_position.z = z;  // Already swapped during parsing
     
     // Set end position
     move_data.end = props.current_position.clone();
     
     // Handle G1 vs G0 differences
     if is_g1 {
-        move_data.color = props.current_tool.color.clone();
+        // Use slicer feature color instead of tool color for proper rendering
+        move_data.color = props.current_feature_color.clone();
         move_data.extruding = move_data.extruding || props.cnc_mode;
     }
+    
+    // Set slicer feature flags
+    move_data.is_perimeter = props.current_is_perimeter;
+    move_data.is_support = props.current_is_support;
+    
+    // Set color ID for picking (matches TypeScript numToColor)
+    move_data.color_id = [
+        ((line_number >> 16) & 0xFF) as u8,  // Red channel
+        ((line_number >> 8) & 0xFF) as u8,   // Green channel 
+        (line_number & 0xFF) as u8,          // Blue channel
+    ];
     
     // Handle extrusion
     if let Some(e_value) = e {

@@ -19,7 +19,7 @@ export default abstract class SlicerBase {
    }
 
    getFeatureColor() {
-      return [1, 1, 1, 1]
+      return this.currentFeatureColor
    }
 
    reportMissingFeature(featureName) {

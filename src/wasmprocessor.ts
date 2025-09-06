@@ -1,4 +1,4 @@
-import init, { GCodeProcessor, ProcessingResult, PositionData, get_version } from '../WASM_FileProcessor/pkg/gcode_file_processor';
+import init, { GCodeProcessor, ProcessingResult, PositionData, RenderBuffers, get_version } from '../WASM_FileProcessor/pkg/gcode_file_processor';
 
 export interface WasmProcessingResult {
     success: boolean;
@@ -14,6 +14,18 @@ export interface WasmPositionData {
     z: number;
     feedRate: number;
     extruding: boolean;
+}
+
+export interface WasmRenderBuffers {
+    segmentCount: number;
+    matrixData: Float32Array;
+    colorData: Float32Array;
+    pickData: Float32Array;
+    filePositionData: Float32Array;
+    fileEndPositionData: Float32Array;
+    toolData: Float32Array;
+    feedRateData: Float32Array;
+    isPerimeterData: Float32Array;
 }
 
 export class WasmProcessor {
@@ -89,6 +101,26 @@ export class WasmProcessor {
         }
 
         return this.processor.find_closest_position(targetPosition);
+    }
+
+    generateRenderBuffers(nozzleSize: number = 0.4, padding: number = 0, progressCallback?: (progress: number, label: string) => void): WasmRenderBuffers {
+        if (!this.initialized || !this.processor) {
+            throw new Error('WASM processor not initialized');
+        }
+
+        const renderBuffers: RenderBuffers = this.processor.generate_render_buffers(nozzleSize, padding, progressCallback);
+        
+        return {
+            segmentCount: renderBuffers.segment_count,
+            matrixData: new Float32Array(renderBuffers.matrix_data),
+            colorData: new Float32Array(renderBuffers.color_data),
+            pickData: new Float32Array(renderBuffers.pick_data),
+            filePositionData: new Float32Array(renderBuffers.file_position_data),
+            fileEndPositionData: new Float32Array(renderBuffers.file_end_position_data),
+            toolData: new Float32Array(renderBuffers.tool_data),
+            feedRateData: new Float32Array(renderBuffers.feed_rate_data),
+            isPerimeterData: new Float32Array(renderBuffers.is_perimeter_data),
+        };
     }
 
     dispose(): void {

@@ -141,6 +141,11 @@ pub struct ProcessorProperties {
     // Slicer information
     pub slicer_name: String,
     pub slicer_version: String,
+    
+    // Current feature coloring state (updated by comment processing)
+    pub current_feature_color: Color4,
+    pub current_is_perimeter: bool,
+    pub current_is_support: bool,
 }
 
 impl ProcessorProperties {
@@ -199,6 +204,11 @@ impl ProcessorProperties {
             adj: 0.0,
             slicer_name: "Unknown".to_string(),
             slicer_version: "Unknown".to_string(),
+            
+            // Initialize with default feature colors (white)
+            current_feature_color: Color4::white(),
+            current_is_perimeter: false,
+            current_is_support: false,
         }
     }
     

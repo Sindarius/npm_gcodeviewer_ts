@@ -15,45 +15,51 @@ impl PrusaSlicer {
 
 impl SlicerBase for PrusaSlicer {
     fn get_feature_color(&self, feature: &FeatureType) -> Color4 {
+        // Colors exactly matching TypeScript featureList values
         match feature {
-            FeatureType::ExternalPerimeter => Color4::new(1.0, 0.4, 0.0, 1.0), // Orange
-            FeatureType::Perimeter | FeatureType::InternalPerimeter => Color4::new(1.0, 0.8, 0.0, 1.0), // Yellow-orange
-            FeatureType::Infill => Color4::new(0.0, 1.0, 0.0, 1.0), // Green
-            FeatureType::SolidInfill | FeatureType::TopSolidInfill => Color4::new(0.0, 0.8, 0.0, 1.0), // Dark green
-            FeatureType::Support => Color4::new(0.0, 0.4, 1.0, 1.0), // Blue
-            FeatureType::SupportInterface => Color4::new(0.4, 0.8, 1.0, 1.0), // Light blue
-            FeatureType::BridgeInfill => Color4::new(1.0, 0.0, 1.0, 1.0), // Magenta
-            FeatureType::GapFill => Color4::new(0.8, 0.8, 0.0, 1.0), // Yellow
-            FeatureType::Skirt | FeatureType::Brim => Color4::new(0.5, 0.5, 0.5, 1.0), // Gray
-            _ => Color4::new(1.0, 1.0, 1.0, 1.0), // White for unknown
+            FeatureType::Perimeter => Color4::new(1.0, 0.9, 0.3, 1.0), // [1, 0.9, 0.3, 1]
+            FeatureType::ExternalPerimeter => Color4::new(1.0, 0.5, 0.2, 1.0), // [1, 0.5, 0.2, 1]
+            FeatureType::Infill => Color4::new(0.59, 0.19, 0.16, 1.0), // [0.59, 0.19, 0.16, 1] - INTERNAL INFILL
+            FeatureType::SolidInfill => Color4::new(0.59, 0.19, 0.8, 1.0), // [0.59, 0.19, 0.8, 1]
+            FeatureType::TopSolidInfill => Color4::new(0.95, 0.25, 0.25, 1.0), // [0.95, 0.25, 0.25, 1]
+            FeatureType::BridgeInfill => Color4::new(0.3, 0.5, 0.73, 1.0), // [0.3, 0.5, 0.73, 1]
+            FeatureType::GapFill => Color4::new(1.0, 1.0, 1.0, 1.0), // [1, 1, 1, 1]
+            FeatureType::Skirt => Color4::new(0.0, 0.53, 0.43, 1.0), // [0, 0.53, 0.43, 1]
+            FeatureType::Brim => Color4::new(0.0, 0.53, 0.43, 1.0), // [0, 0.53, 0.43, 1] - SKIRT/BRIM
+            FeatureType::Support => Color4::new(0.5, 0.5, 0.5, 1.0), // [0.5, 0.5, 0.5, 1] - SUPPORT MATERIAL
+            FeatureType::SupportInterface => Color4::new(0.5, 0.5, 0.5, 1.0), // [0.5, 0.5, 0.5, 1]
+            FeatureType::WipeTower => Color4::new(0.5, 0.5, 0.5, 1.0), // [0.5, 0.5, 0.5, 1]
+            _ => Color4::new(0.5, 0.5, 0.5, 1.0), // [0.5, 0.5, 0.5, 1] - CUSTOM/UNKNOWN
         }
     }
     
     fn parse_feature_from_comment(&self, comment: &str) -> Option<FeatureType> {
-        let comment_lower = comment.to_lowercase();
-        
-        if comment_lower.contains("external perimeter") {
-            Some(FeatureType::ExternalPerimeter)
-        } else if comment_lower.contains("perimeter") {
-            Some(FeatureType::Perimeter)
-        } else if comment_lower.contains("solid infill") {
-            Some(FeatureType::SolidInfill)
-        } else if comment_lower.contains("top solid infill") {
-            Some(FeatureType::TopSolidInfill)
-        } else if comment_lower.contains("infill") {
-            Some(FeatureType::Infill)
-        } else if comment_lower.contains("support interface") {
-            Some(FeatureType::SupportInterface)
-        } else if comment_lower.contains("support") {
-            Some(FeatureType::Support)
-        } else if comment_lower.contains("bridge") {
-            Some(FeatureType::BridgeInfill)
-        } else if comment_lower.contains("gap fill") {
-            Some(FeatureType::GapFill)
-        } else if comment_lower.contains("skirt") {
-            Some(FeatureType::Skirt)
-        } else if comment_lower.contains("brim") {
-            Some(FeatureType::Brim)
+        // Extract feature from ;TYPE: comments (matches TypeScript exactly)
+        let c = comment.trim();
+        if c.starts_with(";TYPE:") {
+            let feature_name = c[6..].trim().to_uppercase(); // Skip ";TYPE:" and trim
+
+            // Direct lookup matching TypeScript featureList exactly
+            match feature_name.as_str() {
+                "PERIMETER" => Some(FeatureType::Perimeter),
+                "EXTERNAL PERIMETER" => Some(FeatureType::ExternalPerimeter),
+                "INTERNAL INFILL" => Some(FeatureType::Infill),
+                "SOLID INFILL" => Some(FeatureType::SolidInfill),
+                "TOP SOLID INFILL" => Some(FeatureType::TopSolidInfill),
+                "BRIDGE INFILL" => Some(FeatureType::BridgeInfill),
+                "GAP FILL" => Some(FeatureType::GapFill),
+                "SKIRT" => Some(FeatureType::Skirt),
+                "SKIRT/BRIM" => Some(FeatureType::Brim),
+                "SUPPORTED MATERIAL" => Some(FeatureType::Support),
+                "SUPPORTED MATERIAL INTERFACE" => Some(FeatureType::SupportInterface),
+                "SUPPORT MATERIAL" => Some(FeatureType::Support),
+                "SUPPORT MATERIAL INTERFACE" => Some(FeatureType::SupportInterface),
+                "OVERHANG PERIMETER" => Some(FeatureType::Perimeter), // Map to Perimeter
+                "WIPE TOWER" => Some(FeatureType::WipeTower),
+                "CUSTOM" => Some(FeatureType::Perimeter), // Default to Perimeter for now
+                "UNKNOWN" => Some(FeatureType::Perimeter), // Default to Perimeter for now
+                _ => None, // Unknown feature type
+            }
         } else {
             None
         }
@@ -92,13 +98,30 @@ impl SlicerBase for PrusaSlicer {
     }
     
     fn is_perimeter_comment(&self, comment: &str) -> bool {
-        let comment_lower = comment.to_lowercase();
-        comment_lower.contains("perimeter")
+        // Match TypeScript featureList perimeter flags exactly
+        if let Some(feature) = self.parse_feature_from_comment(comment) {
+            match feature {
+                FeatureType::ExternalPerimeter => true,  // perimeter: true
+                FeatureType::TopSolidInfill => true,     // perimeter: true  
+                FeatureType::WipeTower => true,          // perimeter: true
+                _ => false,                              // perimeter: false for all others
+            }
+        } else {
+            false
+        }
     }
     
     fn is_support_comment(&self, comment: &str) -> bool {
-        let comment_lower = comment.to_lowercase();
-        comment_lower.contains("support")
+        // Match TypeScript featureList support flags exactly  
+        if let Some(feature) = self.parse_feature_from_comment(comment) {
+            match feature {
+                FeatureType::Support => true,           // support: true (SUPPORTED MATERIAL, SUPPORT MATERIAL)
+                FeatureType::SupportInterface => true,  // support: true (SUPPORTED/SUPPORT MATERIAL INTERFACE)
+                _ => false,                              // support: false for all others
+            }
+        } else {
+            false
+        }
     }
     
     fn get_temperature_from_comment(&self, comment: &str) -> Option<f64> {

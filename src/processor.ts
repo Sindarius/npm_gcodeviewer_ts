@@ -38,7 +38,7 @@ export default class Processor {
    objectPools: GCodePools
    nozzle: Nozzle | null = null
    // Track position data for nozzle animation since Move objects get replaced with Move_Thin
-   positionTracker: Map<number, { x: number, y: number, z: number, feedRate: number, extruding: boolean }> = new Map()
+   positionTracker: Map<number, { x: number; y: number; z: number; feedRate: number; extruding: boolean }> = new Map()
    // Animation playback state
    private isPlaying: boolean = false
    private playbackTimeout: number | null = null
@@ -51,15 +51,17 @@ export default class Processor {
    // Processing method tracking
    private lastProcessingMethod: 'typescript' | 'wasm' | 'hybrid' | 'none' = 'none'
    private processingStats: {
-      method: string;
-      wasmEnabled: boolean;
-      wasmVersion?: string;
-      totalTime?: number;
-      wasmTime?: number;
-      typescriptTime?: number;
-      linesProcessed?: number;
-      movesFound?: number;
-      positionsExtracted?: number;
+      method: string
+      wasmEnabled: boolean
+      wasmVersion?: string
+      totalTime?: number
+      wasmTime?: number
+      typescriptTime?: number
+      wasmRenderTime?: number
+      linesProcessed?: number
+      movesFound?: number
+      positionsExtracted?: number
+      renderSegmentsGenerated?: number
    } = { method: 'none', wasmEnabled: false }
 
    constructor() {
@@ -118,7 +120,7 @@ export default class Processor {
       }
       this.meshes = []
       this.modelMaterial = []
-      
+
       // Note: Don't dispose WASM processor here - it should persist across file loads
    }
 
@@ -136,7 +138,7 @@ export default class Processor {
       this.gCodeLines = []
       this.processorProperties = new ProcessorProperties() //Reset for now
       this.processorProperties.slicer = slicerFactory(file)
-      
+
       // Reset processing stats
       const startTime = performance.now()
       this.processingStats = {
@@ -145,11 +147,11 @@ export default class Processor {
          wasmVersion: this.wasmProcessor ? await this.getWasmVersion() : undefined,
          linesProcessed: 0,
          movesFound: 0,
-         positionsExtracted: 0
+         positionsExtracted: 0,
       }
-      
+
       console.log('Processing file')
-      
+
       // Try WASM processing first for better performance, fallback to TypeScript
       if (this.wasmProcessor) {
          await this.loadFileWithWasm(file)
@@ -159,23 +161,36 @@ export default class Processor {
          this.processingStats.method = 'typescript'
          await this.loadFileStreamed(file)
       }
-      
+
       // Calculate total processing time
       this.processingStats.totalTime = performance.now() - startTime
-      
+
       // Send processing complete event with statistics
       this.worker.postMessage({
          type: 'processingComplete',
-         stats: this.getProcessingStats()
+         stats: this.getProcessingStats(),
       })
-      
+
       // Log final processing summary
       const totalLines = this.processingStats.linesProcessed || this.gCodeLines.length
       const processingSpeed = totalLines / ((this.processingStats.totalTime || 1) / 1000)
-      console.info(`📊 Processing Complete: ${this.processingStats.method.toUpperCase()} method, ${totalLines.toLocaleString()} lines in ${(this.processingStats.totalTime || 0).toFixed(0)}ms (${Math.round(processingSpeed).toLocaleString()} lines/sec)`)
+      console.info(
+         `📊 Processing Complete: ${this.processingStats.method.toUpperCase()} method, ${totalLines.toLocaleString()} lines in ${(
+            this.processingStats.totalTime || 0
+         ).toFixed(0)}ms (${Math.round(processingSpeed).toLocaleString()} lines/sec)`,
+      )
 
       console.info('File Loaded.... Rendering Vertices')
-      await this.testRenderSceneProgressive()
+
+      // Check if we have WASM render buffers available
+      const wasmBuffers = (this as any).wasmRenderBuffers
+      if (wasmBuffers && wasmBuffers.segmentCount > 0) {
+         console.log(`🚀 Using WASM render buffers directly for ${wasmBuffers.segmentCount} segments`)
+         await this.buildMeshesFromWasmBuffers(wasmBuffers)
+      } else {
+         console.log('📦 Using traditional progressive rendering')
+         await this.testRenderSceneProgressive()
+      }
 
       //This is driving picking
       this.gpuPicker.colorTestCallBack = (colorId) => {
@@ -205,7 +220,7 @@ export default class Processor {
       // Ensure we have valid start/end values
       let startByte = this.processorProperties.firstGCodeByte
       let endByte = this.processorProperties.lastGCodeByte
-      
+
       // Fallback to file bounds if no G-code lines were found
       if (startByte === 0 && endByte === 0 && this.gCodeLines.length > 0) {
          startByte = this.gCodeLines[0].filePosition
@@ -225,7 +240,7 @@ export default class Processor {
             this.nozzle.setPosition({
                x: firstPosition.x,
                y: firstPosition.y,
-               z: firstPosition.z
+               z: firstPosition.z,
             })
          }
       }
@@ -236,50 +251,51 @@ export default class Processor {
    private async loadFileStreamed(file: string) {
       const chunkSize = 10000 // Process 10k lines at a time
       let pos = 0
-      
+
       // Track TypeScript processing if not already set
       if (this.lastProcessingMethod === 'none') {
          this.lastProcessingMethod = 'typescript'
          this.processingStats.method = 'typescript'
       }
-      
+
       // Estimate line count for pre-allocation (average ~40 chars per line)
       const estimatedLines = Math.ceil(file.length / 40)
-      
+
       // Pre-allocate arrays with estimated capacity + 20% buffer
       const capacity = Math.ceil(estimatedLines * 1.2)
       this.gCodeLines = [] // Start with empty array, will grow as needed
-      
+
       // Clear position tracker for new file
       this.positionTracker.clear()
       this.sortedPositions = []
-      
+
       // Reset progress tracking
       this.lastReportedProgress = 0
       this.lastReportedChunk = 0
-      
+
       // Pre-allocate position tracking arrays
       let estimatedMoves = Math.ceil(estimatedLines * 0.7) // ~70% of lines are moves
       let tempPositions: number[] = new Array(estimatedMoves)
-      let tempPositionData: Array<{x: number, y: number, z: number, feedRate: number, extruding: boolean}> = new Array(estimatedMoves)
+      let tempPositionData: Array<{ x: number; y: number; z: number; feedRate: number; extruding: boolean }> =
+         new Array(estimatedMoves)
       let positionCount = 0
-      
+
       // Stream through file character by character instead of split('\n')
       const lines = this.streamLines(file)
-      
+
       for (let chunkStart = 0; chunkStart < lines.length; chunkStart += chunkSize) {
          const chunkEnd = Math.min(chunkStart + chunkSize, lines.length)
-         
+
          // Process chunk
          for (let idx = chunkStart; idx < chunkEnd; idx++) {
             const line = lines[idx]
             this.processorProperties.lineNumber = idx + 1 //Use one index to match file
             this.processorProperties.filePosition = pos
             pos += line.length + 1 //Account for newlines that have been stripped
-            
+
             const gcodeLine = ProcessLine(this.processorProperties, line)
             this.gCodeLines.push(gcodeLine)
-            
+
             // Batch store position data for nozzle tracking
             if (gcodeLine.lineType === 'L') {
                const move = gcodeLine as Move
@@ -289,85 +305,82 @@ export default class Processor {
                      const newSize = Math.ceil(estimatedMoves * 1.5)
                      const newPositions = new Array(newSize)
                      const newData = new Array(newSize)
-                     
+
                      // Copy existing data
                      for (let i = 0; i < positionCount; i++) {
                         newPositions[i] = tempPositions[i]
                         newData[i] = tempPositionData[i]
                      }
-                     
+
                      tempPositions = newPositions
                      tempPositionData = newData
                      estimatedMoves = newSize
                      console.log('Expanded position arrays to', newSize, 'entries')
                   }
-                  
+
                   tempPositions[positionCount] = move.filePosition
                   tempPositionData[positionCount] = {
                      x: move.end[0],
                      y: move.end[1],
                      z: move.end[2],
                      feedRate: move.feedRate || 1500,
-                     extruding: move.extruding
+                     extruding: move.extruding,
                   }
                   positionCount++
                }
             }
          }
-         
+
          // Report progress less frequently (every 2% or every 50k lines)
          const progress = chunkEnd / lines.length
          if (progress - this.lastReportedProgress >= 0.02 || chunkEnd - this.lastReportedChunk >= 50000) {
-            this.worker.postMessage({ 
-               type: 'progress', 
-               progress: progress, 
-               label: 'Processing file' 
+            this.worker.postMessage({
+               type: 'progress',
+               progress: progress,
+               label: 'Processing file',
             })
             this.lastReportedProgress = progress
             this.lastReportedChunk = chunkEnd
          }
-         
+
          // Yield control to prevent blocking UI
          if (chunkEnd < lines.length) {
-            await new Promise(resolve => setTimeout(resolve, 0))
+            await new Promise((resolve) => setTimeout(resolve, 0))
          }
       }
 
       this.worker.postMessage({ type: 'progress', progress: 1, label: 'Processing file' })
-      
+
       // Batch transfer position data to final data structures
       console.log('Transferring', positionCount, 'positions to tracker')
-      
+
       // Pre-allocate final arrays with actual count
       this.sortedPositions = new Array(positionCount)
-      
+
       for (let i = 0; i < positionCount; i++) {
          const filePos = tempPositions[i]
          this.positionTracker.set(filePos, tempPositionData[i])
          this.sortedPositions[i] = filePos
       }
-      
+
       // Sort positions for sequential playback (more efficient on pre-allocated array)
       this.sortedPositions.sort((a, b) => a - b)
    }
 
    private async loadFileWithWasm(file: string) {
       console.log('🚀 Using WASM parser for fast processing')
-      
+
       try {
          const wasmStartTime = performance.now()
-         
+
          // Process file with WASM for position extraction and basic analysis
-         const result = await this.wasmProcessor!.processFile(
-            file, 
-            (progress: number, label: string) => {
-               this.worker.postMessage({ 
-                  type: 'progress', 
-                  progress: progress, 
-                  label: `WASM: ${label}`
-               })
-            }
-         )
+         const result = await this.wasmProcessor!.processFile(file, (progress: number, label: string) => {
+            this.worker.postMessage({
+               type: 'progress',
+               progress: progress,
+               label: `WASM: ${label}`,
+            })
+         })
 
          const wasmEndTime = performance.now()
          this.processingStats.wasmTime = wasmEndTime - wasmStartTime
@@ -381,7 +394,11 @@ export default class Processor {
          }
 
          const linesPerSecond = Math.round(result.lineCount / (result.processingTimeMs / 1000))
-         console.log(`✅ WASM processed ${result.lineCount.toLocaleString()} lines with ${result.moveCount.toLocaleString()} moves in ${result.processingTimeMs}ms (${linesPerSecond.toLocaleString()} lines/sec)`)
+         console.log(
+            `✅ WASM processed ${result.lineCount.toLocaleString()} lines with ${result.moveCount.toLocaleString()} moves in ${
+               result.processingTimeMs
+            }ms (${linesPerSecond.toLocaleString()} lines/sec)`,
+         )
 
          // Update processing statistics
          this.processingStats.linesProcessed = result.lineCount
@@ -403,23 +420,58 @@ export default class Processor {
             }
          }
 
-         // Still need to parse lines with TypeScript for full object creation and rendering
-         // but now we have fast position data from WASM
-         const tsStartTime = performance.now()
-         console.log('🔧 Building TypeScript G-code objects for rendering...')
-         
-         // Reset processor state for TypeScript parsing phase
-         this.processorProperties = new ProcessorProperties()
-         this.processorProperties.slicer = slicerFactory(file)
-         
-         await this.loadFileStreamedWithPositions(file)
-         this.processingStats.typescriptTime = performance.now() - tsStartTime
+         // Generate render buffers using WASM for maximum speed
+         const renderStartTime = performance.now()
+         console.log('🚀 Generating render buffers with WASM...')
+
+         try {
+            const wasmRenderBuffers = this.wasmProcessor!.generateRenderBuffers(0.4, 0, (progress: number, label: string) => {
+               this.worker.postMessage({
+                  type: 'progress',
+                  progress: progress,
+                  label: label,
+               })
+            })
+            //const renderTime = performance.now() - renderStartTime
+            //console.log(`✅ WASM generated ${wasmRenderBuffers.segmentCount.toFixed(2)} render segments in ${renderTime.toFixed(2)}ms`)
+
+            // Store render buffers for mesh creation
+            ;(this as any).wasmRenderBuffers = wasmRenderBuffers
+            // this.processingStats.wasmRenderTime = renderTime
+            this.processingStats.renderSegmentsGenerated = wasmRenderBuffers.segmentCount
+
+            // Still need to create G-code line objects for compatibility with existing code
+            console.log('🔧 Building TypeScript G-code objects for compatibility...')
+            const compatStartTime = performance.now()
+
+            // Reset processor state for TypeScript parsing phase
+            this.processorProperties = new ProcessorProperties()
+            this.processorProperties.slicer = slicerFactory(file)
+
+            await this.loadFileStreamedWithPositions(file)
+            const compatTime = performance.now() - compatStartTime
+            console.log(`🔧 TypeScript compatibility objects created in ${compatTime.toFixed(2)}ms`)
+         } catch (error) {
+            console.error('❌ WASM render buffer generation failed:', error)
+            console.warn('🔄 Using TypeScript fallback for rendering...')
+            // Fallback to TypeScript rendering
+            const tsStartTime = performance.now()
+            console.log('🔧 Building TypeScript G-code objects for rendering...')
+
+            // Reset processor state for TypeScript parsing phase
+            this.processorProperties = new ProcessorProperties()
+            this.processorProperties.slicer = slicerFactory(file)
+
+            await this.loadFileStreamedWithPositions(file)
+            this.processingStats.typescriptTime = performance.now() - tsStartTime
+         }
 
          // Report final performance comparison
          const totalWasmTime = (this.processingStats.wasmTime || 0) + (this.processingStats.typescriptTime || 0)
-         const efficiency = this.processingStats.wasmTime ? Math.round((this.processingStats.wasmTime / totalWasmTime) * 100) : 0
-         console.log(`🎯 Hybrid processing complete - WASM: ${efficiency}%, TypeScript: ${100-efficiency}%`)
-
+         const efficiency = this.processingStats.wasmTime
+            ? Math.round((this.processingStats.wasmTime / totalWasmTime) * 100)
+            : 0
+         console.log(`🎯 Hybrid processing complete - WASM: ${efficiency}%, TypeScript: ${100 - efficiency}%`)
       } catch (error) {
          console.error('💥 WASM processing error, falling back to TypeScript parser:', error)
          this.lastProcessingMethod = 'typescript'
@@ -432,16 +484,16 @@ export default class Processor {
       // Lightweight version of loadFileStreamed that leverages WASM position data
       const chunkSize = 10000
       let pos = 0
-      
+
       const lines = this.streamLines(file)
-      
+
       // Reset processor properties for TypeScript processing
       this.processorProperties.lineNumber = 0
       this.processorProperties.filePosition = 0
-      
+
       for (let chunkStart = 0; chunkStart < lines.length; chunkStart += chunkSize) {
          const chunkEnd = Math.min(chunkStart + chunkSize, lines.length)
-         
+
          // Process chunk with error handling
          for (let idx = chunkStart; idx < chunkEnd; idx++) {
             try {
@@ -449,18 +501,22 @@ export default class Processor {
                this.processorProperties.lineNumber = idx + 1
                this.processorProperties.filePosition = pos
                pos += line.length + 1
-               
+
                // Skip temperature commands that aren't visualized (M104, M109, M140, M190, etc.)
                const trimmedLine = line.trim().toUpperCase()
-               if (trimmedLine.startsWith('M104') || trimmedLine.startsWith('M109') || 
-                   trimmedLine.startsWith('M140') || trimmedLine.startsWith('M190') ||
-                   trimmedLine.startsWith('M155')) {
+               if (
+                  trimmedLine.startsWith('M104') ||
+                  trimmedLine.startsWith('M109') ||
+                  trimmedLine.startsWith('M140') ||
+                  trimmedLine.startsWith('M190') ||
+                  trimmedLine.startsWith('M155')
+               ) {
                   // Create a simple comment object for temperature commands to maintain line count
                   const gcodeLine = ProcessLine(this.processorProperties, ';' + line)
                   this.gCodeLines.push(gcodeLine)
                   continue
                }
-               
+
                const gcodeLine = ProcessLine(this.processorProperties, line)
                this.gCodeLines.push(gcodeLine)
             } catch (error) {
@@ -468,22 +524,22 @@ export default class Processor {
                // Continue processing other lines
             }
          }
-         
+
          // Report progress less frequently
          const progress = chunkEnd / lines.length
          if (progress - this.lastReportedProgress >= 0.02 || chunkEnd - this.lastReportedChunk >= 50000) {
-            this.worker.postMessage({ 
-               type: 'progress', 
-               progress: progress, 
-               label: 'Building render objects' 
+            this.worker.postMessage({
+               type: 'progress',
+               progress: progress,
+               label: 'Building render objects',
             })
             this.lastReportedProgress = progress
             this.lastReportedChunk = chunkEnd
          }
-         
+
          // Yield control
          if (chunkEnd < lines.length) {
-            await new Promise(resolve => setTimeout(resolve, 0))
+            await new Promise((resolve) => setTimeout(resolve, 0))
          }
       }
    }
@@ -602,13 +658,13 @@ export default class Processor {
 
          // Use adaptive breakpoint based on LOD
          const adaptiveBreakpoint = this.lodManager.getAdaptiveBreakpoint(60, 30, this.breakPoint)
-         
+
          if (segmentCount >= adaptiveBreakpoint) {
             alphaIndex++
-            
+
             // Determine LOD level for this chunk
             const lodLevel = this.lodManager.getLODBySegmentCount(segmentCount)
-            
+
             let sl = renderlines.slice(lastRenderedIdx)
             let rl = this.testBuildMeshWithLOD(sl, segmentCount, alphaIndex, lodLevel)
             this.meshes.push(...rl)
@@ -624,7 +680,7 @@ export default class Processor {
 
             // Yield control every few mesh generations
             if (alphaIndex % 5 === 0) {
-               await new Promise(resolve => setTimeout(resolve, 0))
+               await new Promise((resolve) => setTimeout(resolve, 0))
             }
          }
       }
@@ -661,7 +717,7 @@ export default class Processor {
          this.meshes[idx].setEnabled(true)
       }
       this.lastMeshMode = mode
-      
+
       // Refresh material states to ensure correct lighting
       this.modelMaterial.forEach((m) => m.refreshMaterialState())
    }
@@ -685,7 +741,7 @@ export default class Processor {
       box.position = new Vector3(0, 0, 0)
       box.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
       box.bakeCurrentTransformIntoVertices()
-      
+
       let cyl = MeshBuilder.CreateCylinder('cyl', { height: 1, diameter: 1 }, this.scene)
       cyl.locallyTranslate(new Vector3(0, 0, 0))
       cyl.rotate(new Vector3(0, 0, 1), Math.PI / 2, Space.WORLD)
@@ -706,7 +762,7 @@ export default class Processor {
       box.material = this.addNewMaterial().material // lineMesh = false by default
       box.alphaIndex = alphaIndex
 
-      cyl.material = this.addNewMaterial().material // lineMesh = false by default  
+      cyl.material = this.addNewMaterial().material // lineMesh = false by default
       cyl.alphaIndex = alphaIndex
 
       let mm = this.addNewMaterial()
@@ -714,20 +770,53 @@ export default class Processor {
       line.material = mm.material
       mm.setLineMesh(true) // Only line mesh should have lineMesh = true
 
-      this.processRenderLines(renderlines, buffers.matrixData, buffers.colorData, buffers.pickData, 
-                            buffers.filePositionData, buffers.fileEndPositionData, buffers.toolData, 
-                            buffers.feedRate, buffers.isPerimeter, box)
-      
+      this.processRenderLines(
+         renderlines,
+         buffers.matrixData,
+         buffers.colorData,
+         buffers.pickData,
+         buffers.filePositionData,
+         buffers.fileEndPositionData,
+         buffers.toolData,
+         buffers.feedRate,
+         buffers.isPerimeter,
+         box,
+      )
+
       // Copy buffers to all meshes
-      this.copyBuffersToMesh(box, buffers.matrixData, buffers.colorData, buffers.pickData, 
-                           buffers.filePositionData, buffers.fileEndPositionData, buffers.toolData, 
-                           buffers.feedRate, buffers.isPerimeter)
-      this.copyBuffersToMesh(cyl, buffers.matrixData, buffers.colorData, buffers.pickData, 
-                           buffers.filePositionData, buffers.fileEndPositionData, buffers.toolData, 
-                           buffers.feedRate, buffers.isPerimeter)
-      this.copyBuffersToMesh(line, buffers.matrixData, buffers.colorData, buffers.pickData, 
-                           buffers.filePositionData, buffers.fileEndPositionData, buffers.toolData, 
-                           buffers.feedRate, buffers.isPerimeter)
+      this.copyBuffersToMesh(
+         box,
+         buffers.matrixData,
+         buffers.colorData,
+         buffers.pickData,
+         buffers.filePositionData,
+         buffers.fileEndPositionData,
+         buffers.toolData,
+         buffers.feedRate,
+         buffers.isPerimeter,
+      )
+      this.copyBuffersToMesh(
+         cyl,
+         buffers.matrixData,
+         buffers.colorData,
+         buffers.pickData,
+         buffers.filePositionData,
+         buffers.fileEndPositionData,
+         buffers.toolData,
+         buffers.feedRate,
+         buffers.isPerimeter,
+      )
+      this.copyBuffersToMesh(
+         line,
+         buffers.matrixData,
+         buffers.colorData,
+         buffers.pickData,
+         buffers.filePositionData,
+         buffers.fileEndPositionData,
+         buffers.toolData,
+         buffers.feedRate,
+         buffers.isPerimeter,
+      )
 
       // Disable box and cylinder initially (only line visible)
       box.setEnabled(false)
@@ -777,16 +866,53 @@ export default class Processor {
       line.material = mm.material
       mm.setLineMesh(true) // Only line mesh should have lineMesh = true
 
-      this.processRenderLines(renderlines, matrixData, colorData, pickData, 
-                            filePositionData, fileEndPositionData, toolData, feedRate, isPerimeter, cyl)
+      this.processRenderLines(
+         renderlines,
+         matrixData,
+         colorData,
+         pickData,
+         filePositionData,
+         fileEndPositionData,
+         toolData,
+         feedRate,
+         isPerimeter,
+         cyl,
+      )
 
       // Copy buffers to all meshes
-      this.copyBuffersToMesh(box, matrixData, colorData, pickData, 
-                           filePositionData, fileEndPositionData, toolData, feedRate, isPerimeter)
-      this.copyBuffersToMesh(cyl, matrixData, colorData, pickData, 
-                           filePositionData, fileEndPositionData, toolData, feedRate, isPerimeter)
-      this.copyBuffersToMesh(line, matrixData, colorData, pickData, 
-                           filePositionData, fileEndPositionData, toolData, feedRate, isPerimeter)
+      this.copyBuffersToMesh(
+         box,
+         matrixData,
+         colorData,
+         pickData,
+         filePositionData,
+         fileEndPositionData,
+         toolData,
+         feedRate,
+         isPerimeter,
+      )
+      this.copyBuffersToMesh(
+         cyl,
+         matrixData,
+         colorData,
+         pickData,
+         filePositionData,
+         fileEndPositionData,
+         toolData,
+         feedRate,
+         isPerimeter,
+      )
+      this.copyBuffersToMesh(
+         line,
+         matrixData,
+         colorData,
+         pickData,
+         filePositionData,
+         fileEndPositionData,
+         toolData,
+         feedRate,
+         isPerimeter,
+      )
 
       // Disable all initially, setMeshMode will enable appropriate ones
       box.setEnabled(false)
@@ -942,7 +1068,7 @@ export default class Processor {
       this.filePosition = position // Store the current position
       this.modelMaterial.forEach((m) => m.updateCurrentFilePosition(position)) //Set it to the end
       this.gpuPicker.updateCurrentPosition(position)
-      
+
       // Update nozzle position based on G-code position
       if (this.nozzle && this.positionTracker.size > 0) {
          if (this.isPlaying && !animate) {
@@ -966,7 +1092,7 @@ export default class Processor {
       // Find the closest position in our tracker
       let closestPosition = null
       let minDistance = Infinity
-      
+
       for (const [pos, posData] of this.positionTracker) {
          const distance = Math.abs(pos - filePosition)
          if (distance < minDistance) {
@@ -974,12 +1100,12 @@ export default class Processor {
             closestPosition = posData
          }
       }
-      
+
       if (closestPosition) {
          this.nozzle.setPosition({
             x: closestPosition.x,
             y: closestPosition.y,
-            z: closestPosition.z
+            z: closestPosition.z,
          })
       }
    }
@@ -991,7 +1117,7 @@ export default class Processor {
       let closestPosition = null
       let minDistance = Infinity
       let closestFilePos = 0
-      
+
       for (const [pos, posData] of this.positionTracker) {
          const distance = Math.abs(pos - filePosition)
          if (distance < minDistance) {
@@ -1000,15 +1126,15 @@ export default class Processor {
             closestFilePos = pos
          }
       }
-      
+
       if (closestPosition) {
          // Create a fake Move object for the nozzle animation
          const fakeMove = {
             end: [closestPosition.x, closestPosition.y, closestPosition.z],
             feedRate: closestPosition.feedRate,
-            extruding: closestPosition.extruding
+            extruding: closestPosition.extruding,
          }
-         
+
          // Create movement and animate to it
          const movement = this.nozzle.createMovementFromGCode(fakeMove as any, this.nozzle.getCurrentPosition())
          this.nozzle.moveToPosition(movement)
@@ -1020,11 +1146,11 @@ export default class Processor {
 
       const currentIdx = binarySearchClosest(this.gCodeLines, this.filePosition, 'filePosition')
       const targetIdx = binarySearchClosest(this.gCodeLines, targetPosition, 'filePosition')
-      
+
       // Animate through moves between current and target position
       const startIdx = Math.min(currentIdx, targetIdx)
       const endIdx = Math.max(currentIdx, targetIdx)
-      
+
       for (let i = startIdx; i <= endIdx; i++) {
          const gcodeLine = this.gCodeLines[i]
          if (gcodeLine && gcodeLine.lineType === 'L') {
@@ -1039,18 +1165,193 @@ export default class Processor {
       this.updateFilePosition(this.gCodeLines[lineNumber - 1].filePosition)
    }
 
+   private async buildMeshesFromWasmBuffers(wasmBuffers: any) {
+      console.log('🔧 Building meshes directly from WASM render buffers...')
+      const startTime = performance.now()
+
+      // Create single mesh set from WASM buffers
+      const lodLevel = this.lodManager.getLODBySegmentCount(wasmBuffers.segmentCount)
+      let meshes: Mesh[]
+
+      switch (lodLevel) {
+         case LODLevel.LOW:
+            meshes = this.createLineMeshFromWasmBuffers(wasmBuffers)
+            break
+         case LODLevel.MEDIUM:
+            meshes = this.createMediumDetailMeshFromWasmBuffers(wasmBuffers)
+            break
+         case LODLevel.HIGH:
+         default:
+            meshes = this.createHighDetailMeshFromWasmBuffers(wasmBuffers)
+            break
+      }
+
+      this.meshes.push(...meshes)
+      this.gpuPicker.addToRenderList(meshes[0]) // Use the first mesh for picking
+
+      // Update materials
+      this.modelMaterial.forEach((m) => {
+         m.updateCurrentFilePosition(this.filePosition)
+         m.updateToolColors(this.processorProperties.buildToolFloat32Array())
+      })
+
+      const buildTime = performance.now() - startTime
+      console.log(
+         `✅ WASM mesh building completed in ${buildTime.toFixed(2)}ms for ${wasmBuffers.segmentCount} segments`,
+      )
+   }
+
+   private createHighDetailMeshFromWasmBuffers(wasmBuffers: any): Mesh[] {
+      // Create box mesh
+      let box = MeshBuilder.CreateBox('box', { width: 1, height: 1, depth: 1 }, this.scene)
+      box.position = new Vector3(0, 0, 0)
+      box.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
+      box.bakeCurrentTransformIntoVertices()
+
+      // Create cylinder mesh
+      let cyl = MeshBuilder.CreateCylinder('cyl', { height: 1, diameter: 1 }, this.scene)
+      cyl.locallyTranslate(new Vector3(0, 0, 0))
+      cyl.rotate(new Vector3(0, 0, 1), Math.PI / 2, Space.WORLD)
+      cyl.bakeCurrentTransformIntoVertices()
+
+      // Create line mesh
+      let line = MeshBuilder.CreateLines(
+         'line',
+         {
+            points: [new Vector3(-0.5, 0, 0), new Vector3(0.5, 0, 0)],
+         },
+         this.scene,
+      )
+
+      // Assign materials and alpha index
+      const alphaIndex = 0
+      box.material = this.addNewMaterial().material
+      box.alphaIndex = alphaIndex
+
+      cyl.material = this.addNewMaterial().material
+      cyl.alphaIndex = alphaIndex
+
+      let mm = this.addNewMaterial()
+      line.alphaIndex = alphaIndex
+      line.material = mm.material
+      mm.setLineMesh(true)
+
+      // Apply WASM buffers directly to all meshes
+      this.applyWasmBuffersToMesh(box, wasmBuffers)
+      this.applyWasmBuffersToMesh(cyl, wasmBuffers)
+      this.applyWasmBuffersToMesh(line, wasmBuffers)
+
+      return [box, cyl, line]
+   }
+
+   private createMediumDetailMeshFromWasmBuffers(wasmBuffers: any): Mesh[] {
+      // Similar to high detail but with optimizations
+      return this.createHighDetailMeshFromWasmBuffers(wasmBuffers)
+   }
+
+   private createLineMeshFromWasmBuffers(wasmBuffers: any): Mesh[] {
+      // Create only line mesh for performance
+      let line = MeshBuilder.CreateLines(
+         'line',
+         {
+            points: [new Vector3(-0.5, 0, 0), new Vector3(0.5, 0, 0)],
+         },
+         this.scene,
+      )
+
+      let mm = this.addNewMaterial()
+      line.alphaIndex = 0
+      line.material = mm.material
+      mm.setLineMesh(true)
+
+      this.applyWasmBuffersToMesh(line, wasmBuffers)
+
+      return [line]
+   }
+
+   private applyWasmBuffersToMesh(mesh: Mesh, wasmBuffers: any) {
+      // Apply WASM-generated buffer data directly to mesh
+      const segmentCount = wasmBuffers.segmentCount
+
+      // Set the matrix data (transformations)
+      mesh.thinInstanceSetBuffer('matrix', wasmBuffers.matrixData, 16, false)
+
+      // Set color data (match attribute name used elsewhere)
+      mesh.thinInstanceSetBuffer('baseColor', wasmBuffers.colorData, 4, false)
+
+      // Set other buffer data (use consistent attribute names and component sizes)
+      mesh.thinInstanceSetBuffer('pickColor', wasmBuffers.pickData, 3, false)
+      mesh.thinInstanceSetBuffer('filePosition', wasmBuffers.filePositionData, 1, false)
+      mesh.thinInstanceSetBuffer('filePositionEnd', wasmBuffers.fileEndPositionData, 1, false)
+      mesh.thinInstanceSetBuffer('tool', wasmBuffers.toolData, 1, false)
+      mesh.thinInstanceSetBuffer('feedRate', wasmBuffers.feedRateData, 1, false)
+      mesh.thinInstanceSetBuffer('isPerimeter', wasmBuffers.isPerimeterData, 1, false)
+
+      mesh.thinInstanceCount = segmentCount
+
+      console.log(`📊 Applied WASM buffers to ${mesh.name}: ${segmentCount} instances`)
+   }
+
    private processRenderLines(
-      renderlines, 
-      matrixData: Float32Array, 
-      colorData: Float32Array, 
+      renderlines,
+      matrixData: Float32Array,
+      colorData: Float32Array,
       pickData: Float32Array,
-      filePositionData: Float32Array, 
-      fileEndPositionData: Float32Array, 
-      toolData: Float32Array, 
-      feedRate: Float32Array, 
+      filePositionData: Float32Array,
+      fileEndPositionData: Float32Array,
+      toolData: Float32Array,
+      feedRate: Float32Array,
       isPerimeter: Float32Array,
-      primaryMesh: Mesh // Added mesh parameter for Move_Thin references
+      primaryMesh: Mesh, // Added mesh parameter for Move_Thin references
    ) {
+      // Check if we have WASM render buffers available
+      const wasmBuffers = (this as any).wasmRenderBuffers
+      console.log('🔍 processRenderLines called:', {
+         hasWasmBuffers: !!wasmBuffers,
+         segmentCount: wasmBuffers?.segmentCount || 0,
+         renderLinesLength: renderlines.length,
+         matrixDataLength: matrixData.length,
+      })
+
+      if (wasmBuffers && wasmBuffers.segmentCount > 0) {
+         console.log(`🚀 Using WASM render buffers for ${wasmBuffers.segmentCount} segments`)
+
+         // Copy WASM-generated buffer data directly
+         const segmentCount = Math.min(wasmBuffers.segmentCount, matrixData.length / 16)
+
+         // Copy matrix data (16 floats per segment)
+         for (let i = 0; i < segmentCount * 16; i++) {
+            matrixData[i] = wasmBuffers.matrixData[i]
+         }
+
+         // Copy other buffer data
+         for (let i = 0; i < segmentCount; i++) {
+            if (i * 4 < colorData.length) {
+               colorData[i * 4] = wasmBuffers.colorData[i * 4] || 1.0
+               colorData[i * 4 + 1] = wasmBuffers.colorData[i * 4 + 1] || 1.0
+               colorData[i * 4 + 2] = wasmBuffers.colorData[i * 4 + 2] || 1.0
+               colorData[i * 4 + 3] = wasmBuffers.colorData[i * 4 + 3] || 1.0
+            }
+
+            // pickColor is 3 floats per instance
+            if (i * 3 + 2 < pickData.length) {
+               pickData[i * 3] = wasmBuffers.pickData[i * 3] || 0
+               pickData[i * 3 + 1] = wasmBuffers.pickData[i * 3 + 1] || 0
+               pickData[i * 3 + 2] = wasmBuffers.pickData[i * 3 + 2] || 0
+            }
+            if (i < filePositionData.length) filePositionData[i] = wasmBuffers.filePositionData[i] || 0
+            if (i < fileEndPositionData.length) fileEndPositionData[i] = wasmBuffers.fileEndPositionData[i] || 0
+            if (i < toolData.length) toolData[i] = wasmBuffers.toolData[i] || 0
+            if (i < feedRate.length) feedRate[i] = wasmBuffers.feedRateData[i] || 1500
+            if (i < isPerimeter.length) isPerimeter[i] = wasmBuffers.isPerimeterData[i] || 1.0
+         }
+
+         console.log(`✅ WASM buffers copied successfully for ${segmentCount} segments`)
+         return // Skip traditional rendering
+      }
+
+      // Fallback to traditional TypeScript rendering
+      console.log('📦 Using traditional TypeScript rendering')
       let segIdx = 0
       for (let idx = 0; idx < renderlines.length; idx++) {
          let line = renderlines[idx] as Base
@@ -1062,9 +1363,25 @@ export default class Processor {
                continue
             }
             let lineData = l.renderLine(0.4, 0.2)
-            this.buildBuffersHelper(lineData, l, segIdx, matrixData, colorData, pickData, 
-                                   filePositionData, fileEndPositionData, toolData, feedRate, isPerimeter)
-            this.gCodeLines[line.lineNumber - 1] = new Move_Thin(this.processorProperties, line as Move, primaryMesh, idx)
+            this.buildBuffersHelper(
+               lineData,
+               l,
+               segIdx,
+               matrixData,
+               colorData,
+               pickData,
+               filePositionData,
+               fileEndPositionData,
+               toolData,
+               feedRate,
+               isPerimeter,
+            )
+            this.gCodeLines[line.lineNumber - 1] = new Move_Thin(
+               this.processorProperties,
+               line as Move,
+               primaryMesh,
+               idx,
+            )
             segIdx++
          } else if (line.lineType === 'A') {
             let arc = line as ArcMove
@@ -1076,27 +1393,43 @@ export default class Processor {
                   continue
                }
                let lineData = segment.renderLine(0.38, 0.3)
-               this.buildBuffersHelper(lineData, arc, segIdx, matrixData, colorData, pickData, 
-                                      filePositionData, fileEndPositionData, toolData, feedRate, isPerimeter)
+               this.buildBuffersHelper(
+                  lineData,
+                  arc,
+                  segIdx,
+                  matrixData,
+                  colorData,
+                  pickData,
+                  filePositionData,
+                  fileEndPositionData,
+                  toolData,
+                  feedRate,
+                  isPerimeter,
+               )
                segIdx++
             }
-            this.gCodeLines[line.lineNumber - 1] = new Move_Thin(this.processorProperties, line as ArcMove, primaryMesh, idx)
+            this.gCodeLines[line.lineNumber - 1] = new Move_Thin(
+               this.processorProperties,
+               line as ArcMove,
+               primaryMesh,
+               idx,
+            )
          }
       }
    }
 
    private buildBuffersHelper(
-      lineData: MoveData, 
-      line: ArcMove | Move, 
+      lineData: MoveData,
+      line: ArcMove | Move,
       idx: number,
-      matrixData: Float32Array, 
-      colorData: Float32Array, 
+      matrixData: Float32Array,
+      colorData: Float32Array,
       pickData: Float32Array,
-      filePositionData: Float32Array, 
-      fileEndPositionData: Float32Array, 
-      toolData: Float32Array, 
-      feedRate: Float32Array, 
-      isPerimeter: Float32Array
+      filePositionData: Float32Array,
+      fileEndPositionData: Float32Array,
+      toolData: Float32Array,
+      feedRate: Float32Array,
+      isPerimeter: Float32Array,
    ) {
       lineData.Matrix.copyToArray(matrixData, idx * 16)
       colorData.set(lineData.Color, idx * 4)
@@ -1110,14 +1443,14 @@ export default class Processor {
 
    private copyBuffersToMesh(
       mesh: Mesh,
-      matrixData: Float32Array, 
-      colorData: Float32Array, 
+      matrixData: Float32Array,
+      colorData: Float32Array,
       pickData: Float32Array,
-      filePositionData: Float32Array, 
-      fileEndPositionData: Float32Array, 
-      toolData: Float32Array, 
-      feedRate: Float32Array, 
-      isPerimeter: Float32Array
+      filePositionData: Float32Array,
+      fileEndPositionData: Float32Array,
+      toolData: Float32Array,
+      feedRate: Float32Array,
+      isPerimeter: Float32Array,
    ) {
       mesh.thinInstanceSetBuffer('matrix', matrixData, 16, true)
       mesh.doNotSyncBoundingInfo = true
@@ -1147,23 +1480,23 @@ export default class Processor {
          console.warn('Cannot start animation: nozzle or positions not available')
          return
       }
-      
+
       if (this.isPlaying) {
          console.log('Animation already playing, continuing from current position')
          return
       }
-      
+
       console.log('Starting animation from current file position:', this.filePosition)
-      
+
       this.isPlaying = true
-      
+
       // Notify UI that animation started
       this.worker.postMessage({
          type: 'animationStarted',
          currentPosition: this.getCurrentAnimationIndex(),
-         totalPositions: this.sortedPositions.length
+         totalPositions: this.sortedPositions.length,
       })
-      
+
       // Start immediately without await to prevent blocking
       this.animateToNextPosition()
    }
@@ -1173,23 +1506,23 @@ export default class Processor {
          console.log('Animation not playing, nothing to pause')
          return
       }
-      
+
       this.isPlaying = false
-      
+
       if (this.playbackTimeout) {
          clearTimeout(this.playbackTimeout)
          this.playbackTimeout = null
       }
-      
+
       if (this.nozzle) {
          this.nozzle.stopAnimation()
       }
-      
+
       // Notify UI that animation paused
       this.worker.postMessage({
          type: 'animationPaused',
          currentPosition: this.getCurrentAnimationIndex(),
-         totalPositions: this.sortedPositions.length
+         totalPositions: this.sortedPositions.length,
       })
    }
 
@@ -1198,40 +1531,40 @@ export default class Processor {
          console.log('Animation already playing')
          return
       }
-      
+
       if (!this.nozzle || this.sortedPositions.length === 0) {
          console.warn('Cannot resume animation: nozzle or positions not available')
          return
       }
-      
+
       this.isPlaying = true
-      
+
       // Notify UI that animation resumed
       this.worker.postMessage({
          type: 'animationResumed',
          currentPosition: this.getCurrentAnimationIndex(),
-         totalPositions: this.sortedPositions.length
+         totalPositions: this.sortedPositions.length,
       })
-      
+
       // Continue from current position
       this.animateToNextPosition()
    }
 
    stopNozzleAnimation(): void {
       this.isPlaying = false
-      
+
       if (this.playbackTimeout) {
          clearTimeout(this.playbackTimeout)
          this.playbackTimeout = null
       }
-      
+
       if (this.nozzle) {
          this.nozzle.stopAnimation()
       }
-      
+
       // Notify UI that animation stopped
       this.worker.postMessage({
-         type: 'animationStopped'
+         type: 'animationStopped',
       })
    }
 
@@ -1239,10 +1572,10 @@ export default class Processor {
       if (!this.isPlaying || !this.nozzle) {
          return
       }
-      
+
       const currentIndex = this.getCurrentAnimationIndex()
       const nextIndex = currentIndex + 1
-      
+
       if (nextIndex >= this.sortedPositions.length) {
          this.stopNozzleAnimation()
          return
@@ -1250,45 +1583,48 @@ export default class Processor {
 
       const nextFilePosition = this.sortedPositions[nextIndex]
       const positionData = this.positionTracker.get(nextFilePosition)
-      
+
       if (positionData) {
          // Update file position to match animation progress - but don't trigger position change events
          this.filePosition = nextFilePosition
          this.modelMaterial.forEach((m) => m.updateCurrentFilePosition(nextFilePosition))
          this.gpuPicker.updateCurrentPosition(nextFilePosition)
-         
+
          // Notify UI of position change
          this.worker.postMessage({
             type: 'animationPositionUpdate',
             position: nextFilePosition,
-            progress: nextIndex / this.sortedPositions.length
+            progress: nextIndex / this.sortedPositions.length,
          })
-         
+
          // Create movement for nozzle
          const fakeMove = {
             end: [positionData.x, positionData.y, positionData.z],
             feedRate: positionData.feedRate,
-            extruding: positionData.extruding
+            extruding: positionData.extruding,
          }
-         
+
          try {
             const movement = this.nozzle.createMovementFromGCode(fakeMove as any, this.nozzle.getCurrentPosition())
-            
+
             // Use the actual calculated duration from nozzle movement instead of fixed delay
-            this.nozzle.moveToPosition(movement).then(() => {
-               if (this.isPlaying) {
-                  // Use minimal delay - nozzle animation duration handles timing
-                  this.playbackTimeout = window.setTimeout(() => {
-                     this.animateToNextPosition()
-                  }, 10)
-               }
-            }).catch(() => {
-               if (this.isPlaying) {
-                  this.playbackTimeout = window.setTimeout(() => {
-                     this.animateToNextPosition()
-                  }, 10)
-               }
-            })
+            this.nozzle
+               .moveToPosition(movement)
+               .then(() => {
+                  if (this.isPlaying) {
+                     // Use minimal delay - nozzle animation duration handles timing
+                     this.playbackTimeout = window.setTimeout(() => {
+                        this.animateToNextPosition()
+                     }, 10)
+                  }
+               })
+               .catch(() => {
+                  if (this.isPlaying) {
+                     this.playbackTimeout = window.setTimeout(() => {
+                        this.animateToNextPosition()
+                     }, 10)
+                  }
+               })
          } catch {
             if (this.isPlaying) {
                this.playbackTimeout = window.setTimeout(() => {
@@ -1317,19 +1653,19 @@ export default class Processor {
       if (!this.nozzle || this.sortedPositions.length === 0) {
          return
       }
-      
+
       // Clear any existing timeout first
       if (this.playbackTimeout) {
          clearTimeout(this.playbackTimeout)
          this.playbackTimeout = null
       }
-      
+
       // Stop current animation
       this.nozzle.stopAnimation()
-      
+
       // Update file position - this is now the single source of truth
       this.filePosition = targetFilePosition
-      
+
       // Find the closest position data for the nozzle
       const targetIndex = this.findClosestPositionIndex(targetFilePosition)
       if (targetIndex >= 0 && targetIndex < this.sortedPositions.length) {
@@ -1339,11 +1675,11 @@ export default class Processor {
             this.nozzle.setPosition({
                x: positionData.x,
                y: positionData.y,
-               z: positionData.z
+               z: positionData.z,
             })
          }
       }
-      
+
       // Continue animation from this point if still playing
       if (this.isPlaying) {
          // Small delay before continuing to allow position to settle
@@ -1357,19 +1693,19 @@ export default class Processor {
       // Fast line splitting without creating intermediate arrays
       const lines: string[] = []
       let start = 0
-      
+
       for (let i = 0; i < file.length; i++) {
          if (file[i] === '\n') {
             lines.push(file.substring(start, i))
             start = i + 1
          }
       }
-      
+
       // Handle last line if no trailing newline
       if (start < file.length) {
          lines.push(file.substring(start))
       }
-      
+
       return lines
    }
 
@@ -1378,24 +1714,24 @@ export default class Processor {
       let right = this.sortedPositions.length - 1
       let closestIndex = 0
       let minDistance = Infinity
-      
+
       // Binary search for efficiency, then linear refinement for closest match
       while (left <= right) {
          const mid = Math.floor((left + right) / 2)
          const distance = Math.abs(this.sortedPositions[mid] - targetFilePosition)
-         
+
          if (distance < minDistance) {
             minDistance = distance
             closestIndex = mid
          }
-         
+
          if (this.sortedPositions[mid] < targetFilePosition) {
             left = mid + 1
          } else {
             right = mid - 1
          }
       }
-      
+
       return closestIndex
    }
 }

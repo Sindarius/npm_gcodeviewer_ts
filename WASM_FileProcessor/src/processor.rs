@@ -40,9 +40,12 @@ impl FileProcessor {
         // Reset processor state for new file
         self.properties.reset();
         
-        // Detect slicer type
+        // Detect slicer type and initialize colors
         let slicer = detect_slicer(file_content);
         self.properties.slicer_name = slicer.get_name().to_string();
+        
+        // Initialize default feature color from slicer
+        self.properties.current_feature_color = slicer.get_feature_color(&crate::slicers::slicer_base::FeatureType::Perimeter);
         
         // Estimate processing parameters
         let file_length = file_content.len();
@@ -68,23 +71,101 @@ impl FileProcessor {
             self.properties.file_position = file_position;
             self.properties.line_number = line_number;
             
+            // Process slicer comments for feature detection (before G-code processing)
+            if line.trim().starts_with(";TYPE:") {
+                // Pass trimmed comment to slicer to ensure consistent matching
+                self.process_feature_comment(&slicer, line.trim());
+            }
+            
             // Process the line2
             match process_line(&mut self.properties, line, file_position, line_number) {
                 Ok(gcode_line) => {
-                    // Store position data for extruding moves
+                    // Store position data for both extruding and travel moves
                     if let Some(move_data) = gcode_line.as_move() {
-                        if move_data.extruding && move_data.end.x.is_finite() && 
-                           move_data.end.y.is_finite() && move_data.end.z.is_finite() {
+                        if move_data.end.x.is_finite() && 
+                           move_data.end.y.is_finite() && move_data.end.z.is_finite() &&
+                           move_data.start.x.is_finite() && move_data.start.y.is_finite() && move_data.start.z.is_finite() {
                             
-                            let pos_data = PositionData {
-                                x: move_data.end.x,
-                                y: move_data.end.y,
-                                z: move_data.end.z,
-                                feed_rate: move_data.feed_rate,
-                                extruding: move_data.extruding,
-                            };
+                            let pos_data = PositionData::new_with_color(
+                                move_data.start.x, move_data.start.y, move_data.start.z,
+                                move_data.end.x, move_data.end.y, move_data.end.z,
+                                move_data.feed_rate,
+                                move_data.extruding,
+                                move_data.layer_height,
+                                move_data.is_perimeter,
+                                move_data.color.clone(),
+                                line_number,
+                                file_position,
+                                (file_position + line.len() as u32),
+                                move_data.tool as u32,
+                                move_data.is_support,
+                            );
                             
                             position_tracker.insert(file_position, pos_data);
+                        }
+                    } else if let Some(arc) = gcode_line.as_arc() {
+                        // Tessellate arcs into line segments for rendering when extruding
+                        if arc.extruding {
+                            // Compute center offsets relative to start
+                            let i_off = arc.center.x - arc.start.x;
+                            let j_off = arc.center.y - arc.start.y;
+                            let k_off = arc.center.z - arc.start.z;
+
+                            // Use current properties for tessellation settings
+                            let arc_plane_pp = self.properties.arc_plane.clone();
+                            let fix_radius = self.properties.fix_radius;
+                            let relative_move = !self.properties.absolute_positioning;
+                            let workplace = self.properties.current_workplace().clone();
+
+                            // Arc segment length similar to TS (0.5mm)
+                            let arc_seg_len = 0.5f64;
+
+                            // Map processor_properties::ArcPlane -> utils::ArcPlane
+                            let utils_plane = match arc_plane_pp {
+                                crate::processor_properties::ArcPlane::XY => crate::utils::ArcPlane::XY,
+                                crate::processor_properties::ArcPlane::XZ => crate::utils::ArcPlane::XZ,
+                                crate::processor_properties::ArcPlane::YZ => crate::utils::ArcPlane::YZ,
+                            };
+
+                            if let Ok(arc_result) = crate::utils::tessellate_arc(
+                                arc.start.clone(),
+                                arc.end.clone(),
+                                i_off,
+                                j_off,
+                                Some(k_off),
+                                Some(arc.radius),
+                                arc.clockwise,
+                                utils_plane,
+                                arc_seg_len,
+                                fix_radius,
+                                relative_move,
+                                workplace,
+                            ) {
+                                // Build segments between points
+                                let mut seg_start = arc.start.clone();
+                                let mut seg_index = 0u32;
+                                for p in arc_result.intermediate_points {
+                                    let pos_key = file_position + seg_index; // keep ordering within line
+                                    let pd = PositionData::new_with_color(
+                                        seg_start.x, seg_start.y, seg_start.z,
+                                        p.x, p.y, p.z,
+                                        arc.feed_rate,
+                                        true,
+                                        0.2,
+                                        self.properties.current_is_perimeter,
+                                        // color from slicer feature
+                                        self.properties.current_feature_color.clone(),
+                                        line_number,
+                                        file_position,
+                                        (file_position + line.len() as u32),
+                                        self.properties.current_tool.tool_number as u32,
+                                        self.properties.current_is_support,
+                                    );
+                                    position_tracker.insert(pos_key, pd);
+                                    seg_start = p;
+                                    seg_index += 1;
+                                }
+                            }
                         }
                     }
                     
@@ -173,19 +254,34 @@ impl FileProcessor {
             for line in line_chunk {
                 self.properties.file_position = file_position;
                 self.properties.line_number = line_number;
+                if line.trim().starts_with(";TYPE:") {
+                    self.process_feature_comment(&slicer, line.trim());
+                }
                 
                 match process_line(&mut self.properties, line, file_position, line_number) {
                     Ok(gcode_line) => {
-                        // Store position data for moves
+                        // Store position data for moves (both extruding and travel)
                         if let Some(move_data) = gcode_line.as_move() {
-                            if move_data.extruding {
-                                position_tracker.insert(file_position, PositionData {
-                                    x: move_data.end.x,
-                                    y: move_data.end.y,
-                                    z: move_data.end.z,
-                                    feed_rate: move_data.feed_rate,
-                                    extruding: move_data.extruding,
-                                });
+                            if move_data.end.x.is_finite() && 
+                               move_data.end.y.is_finite() && move_data.end.z.is_finite() &&
+                               move_data.start.x.is_finite() && move_data.start.y.is_finite() && move_data.start.z.is_finite() {
+                                
+                                let pos_data = PositionData::new_with_color(
+                                    move_data.start.x, move_data.start.y, move_data.start.z,
+                                    move_data.end.x, move_data.end.y, move_data.end.z,
+                                    move_data.feed_rate,
+                                    move_data.extruding,
+                                    move_data.layer_height,
+                                    move_data.is_perimeter,
+                                    move_data.color.clone(),
+                                    line_number,
+                                    file_position,
+                                    (file_position + line.len() as u32),
+                                    move_data.tool as u32,
+                                    move_data.is_support,
+                                );
+                                
+                                position_tracker.insert(file_position, pos_data);
                             }
                         }
                         
@@ -241,6 +337,16 @@ impl FileProcessor {
         }
         
         Ok(())
+    }
+    
+    /// Process slicer feature comments to update coloring state
+    fn process_feature_comment(&mut self, slicer: &Box<dyn crate::slicers::slicer_base::SlicerBase>, line: &str) {
+        if let Some(feature) = slicer.parse_feature_from_comment(line) {
+            // Update current feature color based on detected feature
+            self.properties.current_feature_color = slicer.get_feature_color(&feature);
+            self.properties.current_is_perimeter = slicer.is_perimeter_comment(line);
+            self.properties.current_is_support = slicer.is_support_comment(line);
+        }
     }
 }
 

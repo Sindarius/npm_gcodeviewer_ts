@@ -15,15 +15,15 @@ impl CuraSlicer {
 
 impl SlicerBase for CuraSlicer {
     fn get_feature_color(&self, feature: &FeatureType) -> Color4 {
+        // Colors exactly matching TypeScript featureList values
         match feature {
-            FeatureType::ExternalPerimeter => Color4::new(0.0, 0.6, 1.0, 1.0), // Cyan
-            FeatureType::Perimeter | FeatureType::InternalPerimeter => Color4::new(0.0, 0.8, 1.0, 1.0), // Light cyan
-            FeatureType::Infill => Color4::new(0.8, 0.4, 0.0, 1.0), // Orange
-            FeatureType::SolidInfill | FeatureType::TopSolidInfill => Color4::new(1.0, 0.6, 0.0, 1.0), // Bright orange
-            FeatureType::Support => Color4::new(1.0, 0.0, 0.8, 1.0), // Magenta
-            FeatureType::SupportInterface => Color4::new(1.0, 0.4, 1.0, 1.0), // Light magenta
-            FeatureType::Skirt | FeatureType::Brim => Color4::new(0.6, 0.6, 0.6, 1.0), // Gray
-            _ => Color4::new(1.0, 1.0, 1.0, 1.0), // White
+            FeatureType::SolidInfill => Color4::new(1.0, 0.9, 0.3, 1.0), // [1, 0.9, 0.3, 1] - SKIN
+            FeatureType::ExternalPerimeter => Color4::new(1.0, 0.5, 0.2, 1.0), // [1, 0.5, 0.2, 1] - WALL-OUTER
+            FeatureType::InternalPerimeter => Color4::new(0.59, 0.19, 0.16, 1.0), // [0.59, 0.19, 0.16, 1] - WALL-INNER
+            FeatureType::Infill => Color4::new(0.95, 0.25, 0.25, 1.0), // [0.95, 0.25, 0.25, 1] - FILL
+            FeatureType::Skirt => Color4::new(0.0, 0.53, 0.43, 1.0), // [0, 0.53, 0.43, 1] - SKIRT
+            FeatureType::Support => Color4::new(0.0, 0.53, 0.43, 1.0), // [0, 0.53, 0.43, 1] - SUPPORT
+            _ => Color4::new(0.5, 0.5, 0.5, 1.0), // [0.5, 0.5, 0.5, 1] - CUSTOM/UNKNOWN
         }
     }
     

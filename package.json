@@ -15,7 +15,10 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "tsc --noEmit",
-    "lint": "eslint . --ext .ts,.tsx"
+    "lint": "eslint . --ext .ts,.tsx",
+    "build:wasm": "cd WASM_FileProcessor && wasm-pack build --target web --out-dir pkg --release",
+    "build:wasm:node": "cd WASM_FileProcessor && wasm-pack build --target nodejs --out-dir pkg-node --release",
+    "build:all": "npm run build:wasm && npm run build"
   },
   "author": "",
   "license": "ISC",

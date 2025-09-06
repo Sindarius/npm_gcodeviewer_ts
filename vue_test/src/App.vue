@@ -35,9 +35,11 @@ const processingStats = ref({
   totalTime: 0,
   wasmTime: 0,
   typescriptTime: 0,
+  wasmRenderTime: 0,
   linesProcessed: 0,
   movesFound: 0,
-  positionsExtracted: 0
+  positionsExtracted: 0,
+  renderSegmentsGenerated: 0
 })
 const showDebugPanel = ref(false)
 
@@ -407,23 +409,37 @@ function getProcessingSpeed(): string {
                <v-divider class="my-2" v-if="processingStats.totalTime > 0"></v-divider>
                
                <v-row dense v-if="processingStats.totalTime > 0">
-                  <v-col cols="4">
+                  <v-col cols="3">
                      <div class="stat-item">
                         <div class="stat-label">Total Time</div>
                         <div class="stat-value">{{ Math.round(processingStats.totalTime || 0) }}ms</div>
                      </div>
                   </v-col>
-                  <v-col cols="4" v-if="processingStats.wasmTime > 0">
+                  <v-col cols="3" v-if="processingStats.wasmTime > 0">
                      <div class="stat-item">
-                        <div class="stat-label">WASM Time</div>
+                        <div class="stat-label">WASM Parse</div>
                         <div class="stat-value">{{ Math.round(processingStats.wasmTime || 0) }}ms</div>
                      </div>
                   </v-col>
-                  <v-col cols="4" v-if="processingStats.typescriptTime > 0">
+                  <v-col cols="3" v-if="processingStats.wasmRenderTime > 0">
+                     <div class="stat-item">
+                        <div class="stat-label">WASM Render</div>
+                        <div class="stat-value">{{ Math.round(processingStats.wasmRenderTime || 0) }}ms</div>
+                     </div>
+                  </v-col>
+                  <v-col cols="3" v-if="processingStats.typescriptTime > 0">
                      <div class="stat-item">
                         <div class="stat-label">TS Time</div>
                         <div class="stat-value">{{ Math.round(processingStats.typescriptTime || 0) }}ms</div>
                      </div>
+                  </v-col>
+               </v-row>
+               
+               <v-row dense v-if="processingStats.renderSegmentsGenerated > 0">
+                  <v-col cols="12">
+                     <v-alert type="success" density="compact" variant="tonal">
+                        🚀 WASM generated {{ processingStats.renderSegmentsGenerated?.toLocaleString() }} render segments
+                     </v-alert>
                   </v-col>
                </v-row>
             </v-card-text>
