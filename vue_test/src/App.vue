@@ -125,6 +125,9 @@ onMounted(async () => {
       // Initialize picking settings
       if (viewer.setPickingEnabled) viewer.setPickingEnabled(pickingEnabled.value)
       if (viewer.setPickingRate) viewer.setPickingRate(pickingRate.value)
+
+      // Apply initial FPS cap according to the combo value
+      if (viewer.setMaxFPS) viewer.setMaxFPS(fps.value)
    }
 })
 
@@ -207,9 +210,13 @@ watch(alpha, (newVal) => {
    viewer.setAlphaMode(newVal)
 })
 
-watch(fps, (newVal) => {
-   viewer.setMaxFPS(newVal)
-})
+watch(
+   fps,
+   (newVal) => {
+      if (viewer && viewer.setMaxFPS) viewer.setMaxFPS(newVal)
+   },
+   { immediate: true },
+)
 watch(pickingEnabled, (newVal) => {
    if (viewer && viewer.setPickingEnabled) {
       viewer.setPickingEnabled(newVal)

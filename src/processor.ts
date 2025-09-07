@@ -1076,7 +1076,7 @@ export default class Processor {
          m.thinInstanceSetBuffer('filePositionEnd', fileEndPositionData, 1, true)
          m.thinInstanceSetBuffer('tool', toolData, 1, true)
          m.thinInstanceSetBuffer('feedRate', feedRate, 1, true)
-         m.thinInstanceSetBuffer('isPerimeter', isPerimeter, 1, true)
+         // isPerimeter retained CPU-side for compatibility but not bound to GPU
          m.thinInstanceRefreshBoundingInfo(false)
          //         m.freezeWorldMatrix()
          m.isPickable = false
@@ -1341,7 +1341,6 @@ export default class Processor {
       mesh.thinInstanceSetBuffer('filePositionEnd', wasmBuffers.fileEndPositionData, 1, true)
       mesh.thinInstanceSetBuffer('tool', wasmBuffers.toolData, 1, true)
       mesh.thinInstanceSetBuffer('feedRate', wasmBuffers.feedRateData, 1, true)
-      mesh.thinInstanceSetBuffer('isPerimeter', wasmBuffers.isPerimeterData, 1, true)
 
       mesh.thinInstanceCount = segmentCount
 
@@ -1495,9 +1494,23 @@ export default class Processor {
       pickData.set([line.colorId[0] / 255, line.colorId[1] / 255, line.colorId[2] / 255], idx * 3)
       filePositionData.set([line.filePosition], idx)
       fileEndPositionData.set([line.filePosition + line.line.length], idx)
-      toolData.set([line.tool], idx)
+      // Pack tool index + flags into single float: tool + 1024*(b0=travel,b1=perimeter,b2=support,b3=retraction)
+      const toolIdx = Math.min((line as any).tool || 0, 1023)
+      const isTravel = ((line as any).tool >= 254) || !(line as any).extruding
+      const isPerim = !!(line as any).isPerimeter
+      const isSupport = !!(line as any).isSupport
+      const len = (line as any).length ?? 0
+      const isRetraction = (line as any).extruding && len <= 1e-6
+      let flags = 0
+      if (isTravel) flags |= 1
+      if (isPerim) flags |= 2
+      if (isSupport) flags |= 4
+      if (isRetraction) flags |= 8
+      const packed = toolIdx + flags * 1024
+      toolData.set([packed], idx)
       feedRate.set([line.feedRate], idx)
       isPerimeter.set([line.isPerimeter ? 1 : 0], idx)
+      // segment length no longer sent to GPU; encoded via flags in tool
    }
 
    private copyBuffersToMesh(
@@ -1519,7 +1532,7 @@ export default class Processor {
       mesh.thinInstanceSetBuffer('filePositionEnd', fileEndPositionData, 1, true)
       mesh.thinInstanceSetBuffer('tool', toolData, 1, true)
       mesh.thinInstanceSetBuffer('feedRate', feedRate, 1, true)
-      mesh.thinInstanceSetBuffer('isPerimeter', isPerimeter, 1, true)
+      // isPerimeter retained CPU-side for compatibility but not bound
       mesh.thinInstanceRefreshBoundingInfo(false)
       mesh.isPickable = false
    }

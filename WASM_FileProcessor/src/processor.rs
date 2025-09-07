@@ -63,7 +63,7 @@ impl FileProcessor {
         let mut file_position = 0u32;
         let mut line_number = 1u32;
         let mut lines_processed = 0usize;
-        let mut last_progress_report = 0f64;
+        let mut last_report_time_ms = js_sys::Date::now();
         
         // Process lines in chunks to avoid blocking
         for line in file_content.lines() {
@@ -183,16 +183,15 @@ impl FileProcessor {
             line_number += 1;
             lines_processed += 1;
             
-            // Report progress every chunk or 2%
-            if lines_processed % chunk_size == 0 || lines_processed % (estimated_lines / 50).max(1000) == 0 {
-                let progress = lines_processed as f64 / estimated_lines as f64;
-                
-                // Only report if progress changed significantly (reduces callback overhead)
-                if progress - last_progress_report >= 0.02 {
+            // Report progress strictly by time (~75ms cadence) to keep UI responsive
+            if lines_processed % 1000 == 0 || lines_processed % chunk_size == 0 {
+                let now_ms = js_sys::Date::now();
+                if now_ms - last_report_time_ms >= 75.0 {
+                    let progress = lines_processed as f64 / estimated_lines as f64;
                     if let Some(ref callback) = progress_callback {
                         callback.call(progress.min(1.0), "Processing G-code");
                     }
-                    last_progress_report = progress;
+                    last_report_time_ms = now_ms;
                 }
             }
         }
@@ -250,6 +249,7 @@ impl FileProcessor {
         
         // Process in streaming chunks
         for line_chunk in file_content.lines().collect::<Vec<_>>().chunks(chunk_size) {
+            let mut last_report_time_ms = js_sys::Date::now();
             
             for line in line_chunk {
                 self.properties.file_position = file_position;
@@ -298,10 +298,14 @@ impl FileProcessor {
                 processed_bytes += line.len() + 1; // +1 for newline
             }
             
-            // Report progress after each chunk
+            // Report progress after each chunk, throttled by time to prevent spamming UI
             let progress = processed_bytes as f64 / total_length as f64;
-            if let Some(ref callback) = progress_callback {
-                callback.call(progress.min(1.0), "Processing G-code");
+            let now_ms = js_sys::Date::now();
+            if now_ms - last_report_time_ms >= 75.0 {
+                if let Some(ref callback) = progress_callback {
+                    callback.call(progress.min(1.0), "Processing G-code");
+                }
+                last_report_time_ms = now_ms;
             }
         }
         

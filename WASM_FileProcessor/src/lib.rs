@@ -164,6 +164,8 @@ impl RenderBuffers {
     pub fn is_perimeter_data(&self) -> Vec<f32> {
         self.is_perimeter_data.clone()
     }
+
+    // length_data removed in favor of packed tool flags
 }
 
 // Position data for nozzle animation and rendering (enhanced for matrix calculation)
@@ -431,7 +433,7 @@ impl GCodeProcessor {
         let mut segment_count = 0u32;
         let total_positions = self.sorted_positions.len();
         let mut processed_positions = 0usize;
-        let mut last_progress_report = 0f64;
+        let mut last_report_time_ms = js_sys::Date::now();
 
         // Process positions in sorted order for consistency
         for &position in &self.sorted_positions {
@@ -451,7 +453,19 @@ impl GCodeProcessor {
                     pick_data.extend_from_slice(&color_id); // RGB color for picking (matches TypeScript colorId/255)
                     file_position_data.push(position as f32);
                     file_end_position_data.push(pos_data.file_end_position as f32);
-                    tool_data.push(pos_data.tool as f32);
+                    // Pack tool index + flags to reduce attribute count
+                    // Bits: 0=travel, 1=perimeter, 2=support, 3=retraction/priming
+                    let mut flags: u32 = 0;
+                    let is_travel = !pos_data.extruding;
+                    if is_travel { flags |= 1; }
+                    if pos_data.is_perimeter { flags |= 2; }
+                    if pos_data.is_support { flags |= 4; }
+                    let is_retraction = pos_data.length <= 1e-6 && pos_data.extruding;
+                    if is_retraction { flags |= 8; }
+
+                    let tool_index = pos_data.tool.min(1023) as f32; // 10 bits for tool index
+                    let packed = tool_index + (flags as f32) * 1024.0;
+                    tool_data.push(packed);
                     feed_rate_data.push(pos_data.feed_rate as f32);
                     is_perimeter_data.push(if pos_data.is_perimeter { 1.0 } else { 0.0 });
 
@@ -460,16 +474,17 @@ impl GCodeProcessor {
             
             processed_positions += 1;
             
-            // Report progress every 5% or every 10000 positions to avoid callback overhead
-            if processed_positions % 10000 == 0 || processed_positions % (total_positions / 20).max(1) == 0 {
+            // Report progress by time (>= ~75ms) and by percentage to keep UI responsive without spamming
+            let should_check = processed_positions % 1000 == 0
+                || processed_positions % 10000 == 0;
+            if should_check {
+                let now_ms = js_sys::Date::now();
                 let progress = processed_positions as f64 / total_positions as f64;
-                
-                // Only report if progress changed significantly
-                if progress - last_progress_report >= 0.05 {
+                if now_ms - last_report_time_ms >= 75.0 {
                     if let Some(ref callback) = progress_callback {
                         callback.call(progress.min(1.0), "Building render objects");
                     }
-                    last_progress_report = progress;
+                    last_report_time_ms = now_ms;
                 }
             }
         }

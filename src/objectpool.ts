@@ -116,6 +116,7 @@ export class GCodePools {
          50,
       )
 
+
       // Vector3 pool for frequently created coordinate arrays
       this.vector3Pool = new ObjectPool(
          () => [0, 0, 0],
@@ -232,6 +233,7 @@ export class GCodePools {
          perimeterBuffer = new Float32Array(segmentCount)
       }
 
+
       return {
          matrixData: matrixBuffer,
          colorData: colorBuffer,
@@ -269,6 +271,7 @@ export class GCodePools {
       if (buffers.isPerimeter) {
          this.perimeterPool.release(buffers.isPerimeter)
       }
+      // no segmentLength buffer anymore
       // fileEndPositionData is not pooled, let GC handle it
    }
 

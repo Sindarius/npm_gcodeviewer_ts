@@ -24,7 +24,6 @@ export default class LineShaderMaterial {
    attribute float tool;
    attribute float feedRate;
    attribute float filePositionEnd;
-   attribute float isPerimeter;
    attribute vec4 baseColor;
 
    uniform mat4 viewProjection;
@@ -58,17 +57,29 @@ export default class LineShaderMaterial {
    void main()
    {
       #include<instancesVertex>
-  
-      fIsPerimeter = isPerimeter;
+      // Sensible defaults to avoid undefined behavior on some drivers
+      bDiscard = 0.0;
+      focused = 0.0;
+      
+      // Decode packed tool + flags
+      // Packing: toolIndex + 1024 * (b0=travel, b1=perimeter, b2=support, b3=retraction)
+      float flags = floor(tool / 1024.0);
+      float toolIndex = tool - flags * 1024.0;
+      bool flagTravel = mod(flags, 2.0) >= 1.0;
+      bool flagPerimeter = mod(floor(flags / 2.0), 2.0) >= 1.0;
+      bool flagSupport = mod(floor(flags / 4.0), 2.0) >= 1.0;
+      bool flagRetraction = mod(floor(flags / 8.0), 2.0) >= 1.0;
+
+      fIsPerimeter = flagPerimeter ? 1.0 : 0.0;
 
       switch(renderMode){
             case 0: 
                vDiffColor = baseColor.rgb; 
             break; // use default diffuse color;
             case 1:
-               if(tool < 255.0)
+               if(!flagTravel)
                {
-                  vDiffColor = toolColors[int(tool)].rgb;
+                  vDiffColor = toolColors[int(toolIndex)].rgb;
                }
                else
                {
@@ -85,14 +96,18 @@ export default class LineShaderMaterial {
          }
 
          fShow = currentPosition - filePosition;
-         focused = 0.;
+        focused = 0.;
 
          if(focusedPickColor == pickColor && !(currentPosition >= filePosition && currentPosition <= filePositionEnd)) 
          {
             vDiffColor = vec3(1, 1, 1) - vDiffColor.rgb;
             focused = 1.;
          }
-         else if (tool >= 254.0)  //Travel
+         else if (flagRetraction) // Retraction/priming segments are discarded
+         {
+            bDiscard = 1.;
+         }
+         else if (flagTravel)  //Travel
          {
             if(fShow >= 0.0 && fShow < animationLength / 8.0) 
             {
@@ -222,7 +237,6 @@ export default class LineShaderMaterial {
                'pickColor',
                'tool',
                'feedRate',
-               'isPerimeter',
             ],
             uniforms: [
                'world',
