@@ -118,12 +118,30 @@ export class WasmProcessor {
         return this.processor.get_position_count();
     }
 
+    getPositionByIndex(index: number): WasmPositionData | undefined {
+        if (!this.initialized || !this.processor) {
+            throw new Error('WASM processor not initialized');
+        }
+        const pos = (this.processor as any).get_position_by_index(index) as PositionData | undefined
+        if (!pos) return undefined
+        return { x: pos.x, y: pos.y, z: pos.z, feedRate: pos.feed_rate, extruding: pos.extruding }
+    }
+
+    getPositionsRange(start: number, count: number): WasmPositionData[] {
+        if (!this.initialized || !this.processor) {
+            throw new Error('WASM processor not initialized');
+        }
+        const arr = (this.processor as any).get_positions_range(start, count) as any[]
+        return (arr || []).map((pos: PositionData) => ({
+            x: pos.x, y: pos.y, z: pos.z, feedRate: pos.feed_rate, extruding: pos.extruding
+        }))
+    }
+
     findClosestPosition(targetPosition: number): number | undefined {
         if (!this.initialized || !this.processor) {
             throw new Error('WASM processor not initialized');
         }
-
-        return this.processor.find_closest_position(targetPosition);
+        return (this.processor as any).find_closest_position(targetPosition) as number | undefined
     }
 
     generateRenderBuffers(nozzleSize: number = 0.4, padding: number = 0, progressCallback?: (progress: number, label: string) => void): WasmRenderBuffers {

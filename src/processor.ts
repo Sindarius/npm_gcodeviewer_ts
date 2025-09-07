@@ -50,6 +50,9 @@ export default class Processor {
    private lastReportedChunk: number = 0
    // WASM processor for fast parsing
    private wasmProcessor: WasmProcessor | null = null
+   private disableTsCompatibility: boolean = true
+   private lineOffsets: Uint32Array | null = null
+   private lineCountEstimate: number = 0
    // Processing method tracking
    private lastProcessingMethod: 'typescript' | 'wasm' | 'hybrid' | 'none' = 'none'
    private processingStats: {
@@ -150,6 +153,8 @@ export default class Processor {
 
    async loadFile(file) {
       this.originalFile = file
+      // Precompute line offsets to avoid TS compatibility pass when using WASM
+      this.computeLineOffsets(file)
       this.cleanup()
       this.gCodeLines = []
       this.processorProperties = new ProcessorProperties() //Reset for now
@@ -221,15 +226,31 @@ export default class Processor {
          const lineIndex = decodeLineIndexFromPick(pixels)
          this.focusedColorId = lineIndex
 
-         if (lineIndex >= 0 && lineIndex < this.gCodeLines.length) {
-            const o = this.gCodeLines[lineIndex]
-            this.worker.postMessage({
-               type: 'currentline',
-               line: o.line,
-               lineNumber: o.lineNumber,
-               filePosition: o.filePosition,
-            })
-            // Forward the raw RGB bytes to materials for highlight comparison
+         // Prefer TS objects when present; otherwise derive from lineOffsets
+         if (lineIndex >= 0) {
+            if (this.gCodeLines && lineIndex < this.gCodeLines.length) {
+               const o = this.gCodeLines[lineIndex]
+               this.worker.postMessage({ type: 'currentline', line: o.line, lineNumber: o.lineNumber, filePosition: o.filePosition })
+               // Optionally resolve via WASM without logging
+               try {
+                  const closest = this.wasmProcessor?.findClosestPosition(o.filePosition)
+                  if (closest !== undefined) {
+                     this.wasmProcessor?.getPositionData(closest)
+                  }
+               } catch {}
+            } else if (this.lineOffsets) {
+               const start = this.lineOffsets[lineIndex] || 0
+               const end = lineIndex + 1 < this.lineOffsets.length ? this.lineOffsets[lineIndex + 1] - 1 : this.originalFile.length
+               const line = this.originalFile.substring(start, end)
+               this.worker.postMessage({ type: 'currentline', line, lineNumber: lineIndex + 1, filePosition: start })
+               // Optionally resolve via WASM without logging
+               try {
+                  const closest = this.wasmProcessor?.findClosestPosition(start)
+                  if (closest !== undefined) {
+                     this.wasmProcessor?.getPositionData(closest)
+                  }
+               } catch {}
+            }
             this.modelMaterial.forEach((m) => m.setPickColor(pixels as any))
          }
       }
@@ -237,19 +258,23 @@ export default class Processor {
       this.modelMaterial.forEach((m) => m.setMaxFeedRate(this.processorProperties.maxFeedRate))
       this.modelMaterial.forEach((m) => m.setMinFeedRate(this.processorProperties.minFeedRate))
 
-      this.modelMaterial.forEach((m) =>
-         m.updateCurrentFilePosition(this.gCodeLines[this.gCodeLines.length - 1].filePosition),
-      ) //Set it to the end
-      this.gpuPicker.updateCurrentPosition(this.gCodeLines[this.gCodeLines.length - 1].filePosition)
+      const lastPos = this.sortedPositions?.length ? this.sortedPositions[this.sortedPositions.length - 1] : (this.gCodeLines?.length ? this.gCodeLines[this.gCodeLines.length - 1].filePosition : 0)
+      this.modelMaterial.forEach((m) => m.updateCurrentFilePosition(lastPos)) //Set it to the end
+      this.gpuPicker.updateCurrentPosition(lastPos)
 
       // Ensure we have valid start/end values
       let startByte = this.processorProperties.firstGCodeByte
       let endByte = this.processorProperties.lastGCodeByte
 
       // Fallback to file bounds if no G-code lines were found
-      if (startByte === 0 && endByte === 0 && this.gCodeLines.length > 0) {
-         startByte = this.gCodeLines[0].filePosition
-         endByte = this.gCodeLines[this.gCodeLines.length - 1].filePosition
+      if (startByte === 0 && endByte === 0) {
+         if (this.gCodeLines.length > 0) {
+            startByte = this.gCodeLines[0].filePosition
+            endByte = this.gCodeLines[this.gCodeLines.length - 1].filePosition
+         } else if (this.sortedPositions.length > 0) {
+            startByte = this.sortedPositions[0]
+            endByte = this.sortedPositions[this.sortedPositions.length - 1]
+         }
       }
 
       this.worker.postMessage({
@@ -465,15 +490,17 @@ export default class Processor {
                // Use chunked WASM -> JS streaming of buffers
                await this.buildMeshesFromWasmChunks()
                this.usedChunkedWasmRendering = true
-
-               // Build TypeScript compatibility objects only
-               console.log('🔧 Building TypeScript G-code objects for compatibility...')
-               const compatStartTime = performance.now()
-               this.processorProperties = new ProcessorProperties()
-               this.processorProperties.slicer = slicerFactory(file)
-               await this.loadFileStreamedWithPositions(file)
-               const compatTime = performance.now() - compatStartTime
-               console.log(`🔧 TypeScript compatibility objects created in ${compatTime.toFixed(2)}ms`)
+               if (!this.disableTsCompatibility) {
+                  console.log('🔧 Building TypeScript G-code objects for compatibility...')
+                  const compatStartTime = performance.now()
+                  this.processorProperties = new ProcessorProperties()
+                  this.processorProperties.slicer = slicerFactory(file)
+                  await this.loadFileStreamedWithPositions(file)
+                  const compatTime = performance.now() - compatStartTime
+                  console.log(`🔧 TypeScript compatibility objects created in ${compatTime.toFixed(2)}ms`)
+               } else {
+                  console.log('⏭️ Skipping TypeScript compatibility objects (WASM chunks)')
+               }
                return
             }
 
@@ -498,17 +525,17 @@ export default class Processor {
             // this.processingStats.wasmRenderTime = renderTime
             this.processingStats.renderSegmentsGenerated = wasmRenderBuffers.segmentCount
 
-            // Still need to create G-code line objects for compatibility with existing code
-            console.log('🔧 Building TypeScript G-code objects for compatibility...')
-            const compatStartTime = performance.now()
-
-            // Reset processor state for TypeScript parsing phase
-            this.processorProperties = new ProcessorProperties()
-            this.processorProperties.slicer = slicerFactory(file)
-
-            await this.loadFileStreamedWithPositions(file)
-            const compatTime = performance.now() - compatStartTime
-            console.log(`🔧 TypeScript compatibility objects created in ${compatTime.toFixed(2)}ms`)
+            if (!this.disableTsCompatibility) {
+               console.log('🔧 Building TypeScript G-code objects for compatibility...')
+               const compatStartTime = performance.now()
+               this.processorProperties = new ProcessorProperties()
+               this.processorProperties.slicer = slicerFactory(file)
+               await this.loadFileStreamedWithPositions(file)
+               const compatTime = performance.now() - compatStartTime
+               console.log(`🔧 TypeScript compatibility objects created in ${compatTime.toFixed(2)}ms`)
+            } else {
+               console.log('⏭️ Skipping TypeScript compatibility objects (WASM)')
+            }
          } catch (error) {
             console.warn('⚠️ WASM render buffer generation unavailable; attempting chunked WASM:', error?.message || error)
             try {
@@ -794,6 +821,22 @@ export default class Processor {
       this.modelMaterial.forEach((m) => m.refreshMaterialState())
    }
 
+   private computeLineOffsets(file: string) {
+      // Build start offsets for each line to enable fast substring access
+      const positions: number[] = []
+      positions.push(0)
+      let idx = 0
+      const len = file.length
+      while (idx < len) {
+         const nl = file.indexOf('\n', idx)
+         if (nl === -1) break
+         positions.push(nl + 1)
+         idx = nl + 1
+      }
+      this.lineOffsets = new Uint32Array(positions)
+      this.lineCountEstimate = positions.length
+   }
+
    private rebuildWasmMeshForMode(mode: number, wasmBuffers: any) {
       // Dispose existing active meshes
       this.meshes.forEach((m) => {
@@ -817,6 +860,7 @@ export default class Processor {
                const mm = this.addNewMaterial()
                mm.setLineMesh(true)
                mesh.material = mm.material
+               mm.updateToolColors(this.processorProperties.buildToolFloat32Array())
             }
             break
          case 1: // cylinder -> use box instead to avoid extra mesh
@@ -825,7 +869,11 @@ export default class Processor {
             mesh.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
             mesh.bakeCurrentTransformIntoVertices()
             ;(mesh as any).metadata = { meshType: 0 }
-            mesh.material = this.addNewMaterial().material
+            {
+               const mb = this.addNewMaterial()
+               mesh.material = mb.material
+               mb.updateToolColors(this.processorProperties.buildToolFloat32Array())
+            }
             break
          case 0: // box
          default:
@@ -834,7 +882,11 @@ export default class Processor {
             mesh.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
             mesh.bakeCurrentTransformIntoVertices()
             ;(mesh as any).metadata = { meshType: 0 }
-            mesh.material = this.addNewMaterial().material
+            {
+               const mb = this.addNewMaterial()
+               mesh.material = mb.material
+               mb.updateToolColors(this.processorProperties.buildToolFloat32Array())
+            }
             break
       }
 
@@ -1298,35 +1350,52 @@ export default class Processor {
    }
 
    getGCodeInRange(filePos, count = 20) {
-      let idx = binarySearchClosest(this.gCodeLines, filePos, 'filePosition')
-
-      if (this.gCodeLines[idx].filePosition > filePos) idx--
-
-      let min = Math.max(0, idx - count / 2)
-      let max = Math.min(idx + count / 2, this.gCodeLines.length - 1)
-
-      if (count % 2 == 1) {
-         min++
-         max++
+      // Use TS objects when present
+      if (this.gCodeLines && this.gCodeLines.length) {
+         let idx = binarySearchClosest(this.gCodeLines, filePos, 'filePosition')
+         if (this.gCodeLines[idx].filePosition > filePos) idx--
+         let min = Math.max(0, idx - count / 2)
+         let max = Math.min(idx + count / 2, this.gCodeLines.length - 1)
+         if (count % 2 == 1) {
+            min++
+            max++
+         }
+         let sub = this.gCodeLines.slice(min, max)
+         let lines = []
+         for (let idx in sub) {
+            let l = sub[idx]
+            lines.push({ line: l.line, lineNumber: l.lineNumber, filePosition: l.filePosition, lineType: l.lineType, focus: false })
+         }
+         var f = lines.find((f) => f.lineNumber == this.gCodeLines[idx].lineNumber)
+         if (f) f.focus = true
+         this.worker.postMessage({ type: 'getgcodes', lines: lines })
+         return
       }
 
-      let sub = this.gCodeLines.slice(min, max)
-      let lines = []
-      for (let idx in sub) {
-         let l = sub[idx]
-         lines.push({
-            line: l.line,
-            lineNumber: l.lineNumber,
-            filePosition: l.filePosition,
-            lineType: l.lineType,
-            focus: false,
-         })
+      // WASM-first path using lineOffsets and raw file
+      if (!this.lineOffsets) {
+         this.worker.postMessage({ type: 'getgcodes', lines: [] })
+         return
       }
-
-      var f = lines.find((f) => f.lineNumber == this.gCodeLines[idx].lineNumber)
-      if (f) f.focus = true
-
-      this.worker.postMessage({ type: 'getgcodes', lines: lines })
+      // Find closest line index by binary searching lineOffsets
+      let left = 0, right = this.lineOffsets.length - 1, closest = 0
+      while (left <= right) {
+         const mid = (left + right) >>> 1
+         const pos = this.lineOffsets[mid]
+         if (pos <= filePos) { closest = mid; left = mid + 1 } else { right = mid - 1 }
+      }
+      let min = Math.max(0, closest - Math.floor(count / 2))
+      let max = Math.min(this.lineOffsets.length - 1, min + count - 1)
+      const lines: any[] = []
+      for (let i = min; i <= max; i++) {
+         const start = this.lineOffsets[i]
+         const end = i + 1 < this.lineOffsets.length ? this.lineOffsets[i + 1] - 1 : this.originalFile.length
+         const line = this.originalFile.substring(start, end)
+         lines.push({ line, lineNumber: i + 1, filePosition: start, lineType: 'C', focus: false })
+      }
+      const focusIdx = closest - min
+      if (focusIdx >= 0 && focusIdx < lines.length) lines[focusIdx].focus = true
+      this.worker.postMessage({ type: 'getgcodes', lines })
    }
 
    updateFilePosition(position: number, animate: boolean = false) {
@@ -1396,7 +1465,16 @@ export default class Processor {
    }
 
    updateByLineNumber(lineNumber: number) {
-      this.updateFilePosition(this.gCodeLines[lineNumber - 1].filePosition)
+      const idx = Math.max(0, (lineNumber | 0) - 1)
+      if (this.gCodeLines && this.gCodeLines.length > idx) {
+         this.updateFilePosition(this.gCodeLines[idx].filePosition)
+         return
+      }
+      // WASM-first path: use precomputed offsets
+      if (this.lineOffsets && idx < this.lineOffsets.length) {
+         const filePos = this.lineOffsets[idx]
+         this.updateFilePosition(filePos)
+      }
    }
 
    private async buildMeshesFromWasmBuffers(wasmBuffers: any) {
@@ -1530,12 +1608,15 @@ export default class Processor {
       )
       ;(line as any).metadata = { meshType: 2 }
 
-      // Assign materials
-      box.material = this.addNewMaterial().material
+      // Assign materials and apply tool colors
+      const matBox = this.addNewMaterial()
+      box.material = matBox.material
+      matBox.updateToolColors(this.processorProperties.buildToolFloat32Array())
       // Skip separate cylinder material; cyl uses the box
-      let mm = this.addNewMaterial()
+      const mm = this.addNewMaterial()
       line.material = mm.material
       mm.setLineMesh(true)
+      mm.updateToolColors(this.processorProperties.buildToolFloat32Array())
 
       // Apply buffers to all meshes
       this.applyWasmBuffersToMesh(box, wasmBuffers)
@@ -1592,6 +1673,21 @@ export default class Processor {
       // Refresh bounds once
       mesh.thinInstanceRefreshBoundingInfo(false)
 
+      // Debug a small sample of tool indices/flags to verify proper packing
+      try {
+         const sample = Math.min(5, wasmBuffers.toolData.length)
+         const decoded = [] as any[]
+         for (let i = 0; i < sample; i++) {
+            const v = wasmBuffers.toolData[i]
+            const flags = Math.floor(v / 1024.0)
+            const idx = Math.floor(v - flags * 1024.0)
+            decoded.push({ idx, flags, raw: v })
+         }
+         // eslint-disable-next-line no-console
+         console.log(`[Material] toolData sample for ${mesh.name}`, decoded)
+      } catch {}
+
+      // eslint-disable-next-line no-console
       console.log(`📊 Applied WASM buffers to ${mesh.name}: ${segmentCount} instances`)
    }
 
@@ -2104,9 +2200,10 @@ export default class Processor {
          try {
             const pos = this.wasmProcessor.findClosestPosition(filePosition)
             if (pos !== undefined) {
-               return this.wasmProcessor.getPositionData(pos)
+               const data = this.wasmProcessor.getPositionData(pos)
+               return data
             }
-         } catch {}
+         } catch (e) {}
       }
       // Fallback to JS map scan
       let closest = undefined as any

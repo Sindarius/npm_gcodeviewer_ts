@@ -293,6 +293,10 @@ export default class LineShaderMaterial {
       this.renderMode = mode
       this.material.onBindObservable.addOnce(() => {
          this.material.getEffect()?.setInt('renderMode', mode)
+         try {
+            // eslint-disable-next-line no-console
+            console.log('[Material] set renderMode', mode)
+         } catch {}
       })
    }
 
@@ -309,11 +313,29 @@ export default class LineShaderMaterial {
       return this.material
    }
 
-   updateToolColors(toolColors: number[]) {
+  updateToolColors(toolColors: number[]) {
+      try {
+         // eslint-disable-next-line no-console
+         console.log('[Material] Applying toolColors', { count: toolColors?.length, first: toolColors?.slice?.(0, 4) })
+      } catch {}
+      // Apply immediately if ready
+      const eff = this.material.getEffect()
+      if (eff && eff.isReady()) {
+         eff.setFloatArray4('toolColors', toolColors)
+         try {
+            // eslint-disable-next-line no-console
+            console.log('[Material] set toolColors (immediate)', { count: toolColors?.length, first: toolColors?.slice?.(0, 4) })
+         } catch {}
+      }
+      // And ensure next bind updates as well (in case effect rebinds later)
       this.material.onBindObservable.addOnce(() => {
          this.material.getEffect()?.setFloatArray4('toolColors', toolColors)
+         try {
+            // eslint-disable-next-line no-console
+            console.log('[Material] set toolColors (onBind)', { count: toolColors?.length, first: toolColors?.slice?.(0, 4) })
+         } catch {}
       })
-   }
+  }
 
    setPickColor(color: number[]) {
       this.material.onBindObservable.addOnce(() => {

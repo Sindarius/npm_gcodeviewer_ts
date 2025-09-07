@@ -85,14 +85,48 @@ export default class ProcessorProperties {
       return this.workplaceOffsets[this.currentWorkplaceIdx]
    }
 
-   buildToolFloat32Array() {
-      let toolArray = new Array(this.lineCount * 4)
-      let idx = 0
-      for (let idx = 0; idx < this.tools.length; idx++) {
-         this.tools[idx].color.toArray(toolArray, idx * 4)
+  buildToolFloat32Array() {
+      const MAX_TOOLS = 20
+      const toolArray = new Float32Array(MAX_TOOLS * 4)
+      for (let i = 0; i < MAX_TOOLS; i++) {
+         const t = this.tools[i]
+         if (t && t.color) {
+            // Babylon Color4 has toArray(target, offset)
+            t.color.toArray(toolArray as unknown as number[], i * 4)
+         } else {
+            // Default palette entries for missing tools
+            // 0: Cyan, 1: Magenta, 2: Yellow, 3: White, 4: Black, then repeat red/green/blue
+            const palette = [
+               [0, 1, 1, 1], // Cyan
+               [1, 0, 1, 1], // Magenta
+               [1, 1, 0, 1], // Yellow
+               [1, 1, 1, 1], // White
+               [0, 0, 0, 1], // Black
+               [1, 0, 0, 1], // Red
+               [0, 1, 0, 1], // Green
+               [0, 0, 1, 1], // Blue
+            ]
+            const p = palette[i % palette.length]
+            toolArray[i * 4 + 0] = p[0]
+            toolArray[i * 4 + 1] = p[1]
+            toolArray[i * 4 + 2] = p[2]
+            toolArray[i * 4 + 3] = p[3]
+         }
       }
-      return toolArray
-   }
+      // Debug summary of colors set
+      try {
+         const first = Array.from(toolArray.slice(0, 20))
+         // eslint-disable-next-line no-console
+         console.log('[Tools] toolColors (first 5 vec4)', {
+            t0: first.slice(0, 4),
+            t1: first.slice(4, 8),
+            t2: first.slice(8, 12),
+            t3: first.slice(12, 16),
+            t4: first.slice(16, 20),
+         })
+      } catch {}
+      return Array.from(toolArray)
+  }
 
    constructor() {
       this.workplaceOffsets.push(new Vector3(0, 0, 0)) //set a default workplace if we do not have workplaces

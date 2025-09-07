@@ -202,8 +202,16 @@ export default class Viewer {
       this.scene.onPointerObservable.add((pointerInfo) => {
          if (pointerInfo.type == PointerEventTypes.POINTERTAP) {
             try {
-               if (this.processor.focusedColorId > 10) {
-                  var pos = this.processor.gCodeLines[this.processor.focusedColorId].filePosition
+               const idx = this.processor.focusedColorId | 0
+               if (idx > 10) {
+                  let pos = 0
+                  if (this.processor.gCodeLines && this.processor.gCodeLines.length > idx) {
+                     pos = this.processor.gCodeLines[idx].filePosition
+                  } else if ((this.processor as any).lineOffsets && (this.processor as any).lineOffsets.length > idx) {
+                     pos = (this.processor as any).lineOffsets[idx]
+                  } else if ((this.processor as any).sortedPositions && (this.processor as any).sortedPositions.length > idx) {
+                     pos = (this.processor as any).sortedPositions[idx]
+                  }
                   this.processor.updateFilePosition(pos)
                   this.worker.postMessage({ type: 'positionupdate', position: pos })
                }

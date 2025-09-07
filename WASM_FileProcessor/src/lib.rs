@@ -387,6 +387,21 @@ impl GCodeProcessor {
     pub fn get_position_count(&self) -> usize {
         self.positions.len()
     }
+
+    /// Get position by sorted index (lightweight lookup for UI)
+    #[wasm_bindgen]
+    pub fn get_position_by_index(&self, index: usize) -> Option<PositionData> {
+        if index >= self.positions.len() { return None; }
+        self.positions.get(index).cloned()
+    }
+
+    /// Get a small range of positions by sorted index
+    #[wasm_bindgen]
+    pub fn get_positions_range(&self, start: usize, count: usize) -> Vec<PositionData> {
+        if start >= self.positions.len() { return Vec::new(); }
+        let end = (start + count).min(self.positions.len());
+        self.positions[start..end].to_vec()
+    }
     
     /// Find closest position to a target file position
     #[wasm_bindgen]
