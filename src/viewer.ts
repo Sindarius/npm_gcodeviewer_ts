@@ -247,6 +247,20 @@ export default class Viewer {
       this.maxFrameRate = 1000 / fps
    }
 
+   setPickingEnabled(enabled: boolean) {
+      if (this.processor && this.processor.gpuPicker) {
+         this.processor.gpuPicker.setEnabled(!!enabled)
+      }
+   }
+
+   setPickingRate(hz: number) {
+      if (this.processor && this.processor.gpuPicker) {
+         if (!hz || hz <= 0) hz = 10
+         const ms = Math.floor(1000 / hz)
+         this.processor.gpuPicker.setThrottleMs(ms)
+      }
+   }
+
    //Send message to the main thread for events we want to bind to.
    bindHandler(targetName, eventName, fn, opt) {
       let id = `${targetName}${eventName}`

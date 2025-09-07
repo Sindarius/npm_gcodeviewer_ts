@@ -233,6 +233,15 @@ export default class ViewerProxy {
       this.webWorker.postMessage({ type: 'setfps', fps: fps })
    }
 
+   setPickingEnabled(enabled: boolean): void {
+      this.webWorker.postMessage({ type: 'setPickingEnabled', enabled })
+   }
+
+   setPickingRate(hz: number): void {
+      if (!hz || hz <= 0) hz = 10
+      this.webWorker.postMessage({ type: 'setPickingRate', hz })
+   }
+
    setPerimeterOnly(perimeterOnly: boolean): void {
       this.webWorker.postMessage({ type: 'perimeterOnly', perimeterOnly: perimeterOnly })
    }

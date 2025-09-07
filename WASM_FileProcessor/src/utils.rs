@@ -458,22 +458,36 @@ pub fn tessellate_arc(
         let p1 = center1 + arc_radius * current_angle.sin();
         p2 += axis2_step;
         
-        // Convert back to world coordinates based on arc plane
+        // Convert back to world coordinates to match TypeScript mapping
+        // TS pushes: { x: output['x'], y: output['z'], z: output['y'] }
+        // where output[axis0]=p0, output[axis1]=p1, output[axis2]=p2
+        // This yields:
+        //  XY => (x=p0, y=p2, z=p1)
+        //  XZ => (x=p1, y=p2, z=p0)
+        //  YZ => (x=p2, y=p1, z=p0)
         let world_point = match arc_plane {
-            ArcPlane::XY => Vector3 { x: p0, y: p1, z: p2 },
-            ArcPlane::XZ => Vector3 { x: p1, y: p2, z: p0 },
-            ArcPlane::YZ => Vector3 { x: p2, y: p0, z: p1 },
+            ArcPlane::XY => Vector3 { x: p0, y: p2, z: p1 },
+            // For XZ: output.x=p1, output.y=p2, output.z=p0, then world={x:output.x, y:output.z, z:output.y}
+            ArcPlane::XZ => Vector3 { x: p1, y: p0, z: p2 },
+            ArcPlane::YZ => Vector3 { x: p2, y: p1, z: p0 },
         };
         
         points.push(world_point);
     }
     
-    // Add final point and save a copy for the result
-    let final_pos = target.clone();
-    points.push(target);
+    // Add final point using same world mapping
+    let final_p0 = target_array[axis0_idx];
+    let final_p1 = target_array[axis1_idx];
+    let final_p2 = target_array[axis2_idx];
+    let final_world = match arc_plane {
+        ArcPlane::XY => Vector3 { x: final_p0, y: final_p2, z: final_p1 },
+        ArcPlane::XZ => Vector3 { x: final_p1, y: final_p0, z: final_p2 },
+        ArcPlane::YZ => Vector3 { x: final_p2, y: final_p1, z: final_p0 },
+    };
+    points.push(final_world.clone());
     
     Ok(ArcResult {
-        final_position: final_pos,
+        final_position: final_world,
         intermediate_points: points,
     })
 }

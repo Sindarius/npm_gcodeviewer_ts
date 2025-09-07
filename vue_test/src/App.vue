@@ -24,6 +24,8 @@ const progressLabel = ref('')
 const fps = ref(999)
 const perimeterOnly = ref(false)
 const nozzleVisible = ref(false)
+const pickingEnabled = ref(true)
+const pickingRate = ref(30)
 let isPlaying = false
 let animationMode = false
 
@@ -119,6 +121,10 @@ onMounted(async () => {
                break
          }
       }
+
+      // Initialize picking settings
+      if (viewer.setPickingEnabled) viewer.setPickingEnabled(pickingEnabled.value)
+      if (viewer.setPickingRate) viewer.setPickingRate(pickingRate.value)
    }
 })
 
@@ -203,6 +209,16 @@ watch(alpha, (newVal) => {
 
 watch(fps, (newVal) => {
    viewer.setMaxFPS(newVal)
+})
+watch(pickingEnabled, (newVal) => {
+   if (viewer && viewer.setPickingEnabled) {
+      viewer.setPickingEnabled(newVal)
+   }
+})
+watch(pickingRate, (newVal) => {
+   if (viewer && viewer.setPickingRate) {
+      viewer.setPickingRate(newVal)
+   }
 })
 
 watch(perimeterOnly, (newVal) => {
@@ -339,6 +355,21 @@ function getProcessingSpeed(): string {
       <v-checkbox class="progress" v-model="progressMode">Progress Mode</v-checkbox>
       <v-checkbox class="perimeterOnly" v-model="perimeterOnly">Perimeter Only</v-checkbox>
       <v-checkbox class="nozzle" v-model="nozzleVisible">Show Nozzle</v-checkbox>
+      <v-checkbox class="picking" v-model="pickingEnabled">Enable Picking</v-checkbox>
+      <v-select
+         item-title="label"
+         item-value="value"
+         class="pickingRate"
+         label="Pick Rate (Hz)"
+         v-model="pickingRate"
+         :items="[
+            { label: '60', value: 60 },
+            { label: '30', value: 30 },
+            { label: '15', value: 15 },
+            { label: '10', value: 10 },
+            { label: '5', value: 5 }
+         ]"
+      ></v-select>
       <v-checkbox class="debug-panel" v-model="showDebugPanel">Show Debug Panel</v-checkbox>
       
       <!-- Debug Panel -->
@@ -580,6 +611,14 @@ header {
    color: white;
 }
 
+.picking {
+   position: absolute;
+   top: 10px;
+   right: 900px;
+   z-index: 11;
+   color: white;
+}
+
 .meshes {
    position: absolute;
    top: 70px;
@@ -601,6 +640,15 @@ header {
 .fps {
    position: absolute;
    top: 130px;
+   right: 10px;
+   z-index: 11;
+   width: 300px;
+   color: white;
+}
+
+.pickingRate {
+   position: absolute;
+   top: 190px;
    right: 10px;
    z-index: 11;
    width: 300px;

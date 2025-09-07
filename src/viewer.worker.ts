@@ -40,6 +40,13 @@ self.addEventListener('message', async (message) => {
          self.viewer = new Viewer()
          self.viewer.init_worker(message.data, self)
          self.viewer.initEngine()
+         // Pre-enable WASM processing by default for performance
+         try {
+            await self.viewer.processor.enableWasmProcessing()
+            self.postMessage({ type: 'wasmInitialized', success: true })
+         } catch (error) {
+            self.postMessage({ type: 'wasmInitialized', success: false, error: error?.message || 'WASM init failed' })
+         }
 
          break
       case 'event': //UI Event
@@ -82,6 +89,22 @@ self.addEventListener('message', async (message) => {
          break
       case 'setfps':
          self.viewer.setMaxFPS(message.data.fps)
+         break
+      case 'setPickingEnabled':
+         if (self.viewer?.processor?.gpuPicker) {
+            self.viewer.processor.gpuPicker.setEnabled(!!message.data.enabled)
+         }
+         break
+      case 'setPickingRate':
+         if (self.viewer?.processor?.gpuPicker) {
+            // message.data can be hz or throttleMs; honor ms if present
+            if (typeof message.data.throttleMs === 'number') {
+               self.viewer.processor.gpuPicker.setThrottleMs(message.data.throttleMs)
+            } else if (typeof message.data.hz === 'number' && message.data.hz > 0) {
+               const ms = Math.floor(1000 / message.data.hz)
+               self.viewer.processor.gpuPicker.setThrottleMs(ms)
+            }
+         }
          break
       case 'perimeterOnly':
          self.viewer.processor.setPerimeterOnly(message.data.perimeterOnly)

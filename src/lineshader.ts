@@ -25,7 +25,7 @@ export default class LineShaderMaterial {
    attribute float feedRate;
    attribute float filePositionEnd;
    attribute float isPerimeter;
-   attribute vec3 baseColor;
+   attribute vec4 baseColor;
 
    uniform mat4 viewProjection;
    uniform mat4 worldView;
@@ -223,7 +223,6 @@ export default class LineShaderMaterial {
                'tool',
                'feedRate',
                'isPerimeter',
-               'baseColor',
             ],
             uniforms: [
                'world',

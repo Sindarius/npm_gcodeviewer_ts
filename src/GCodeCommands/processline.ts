@@ -29,7 +29,7 @@ function parseG0G1Fast(props: ProcessorProperties, line: string): Base | null {
       const char = line[i]
       if (char === 'G' || char === 'g') {
          i++
-         if (line[i] === '1' || (line[i] === '0' && line[i+1] === '1')) {
+         if (line[i] === '1' || (line[i] === '0' && i + 1 < line.length && line[i + 1] === '1')) {
             isG1 = true
          }
          // Skip to next space or letter
@@ -175,9 +175,12 @@ export function ProcessLine(props: ProcessorProperties, line: string): Base {
    }
    
    // Ultra-fast path for common G0/G1 moves (80%+ of lines)
-   if ((workingLine[0] === 'G' || workingLine[0] === 'g') && 
-       (workingLine[1] === '0' || workingLine[1] === '1') &&
-       (workingLine[2] === ' ' || workingLine[2] === '0')) {
+   if (
+      workingLine.length >= 2 &&
+      (workingLine[0] === 'G' || workingLine[0] === 'g') &&
+      (workingLine[1] === '0' || workingLine[1] === '1') &&
+      (workingLine.length === 2 || workingLine[2] === ' ' || workingLine[2] === '0')
+   ) {
       const fastResult = parseG0G1Fast(props, line)
       if (fastResult) {
          // Apply firstGCodeByte/lastGCodeByte logic

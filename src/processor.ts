@@ -1,4 +1,4 @@
-import { Base, Move, ArcMove, Move_Thin } from './GCodeLines'
+import { Base, Move, ArcMove, Move_Thin, Comment } from './GCodeLines'
 import ProcessorProperties from './processorProperties'
 import { ProcessLine } from './GCodeCommands/processline'
 import { Scene } from '@babylonjs/core/scene'
@@ -233,15 +233,14 @@ export default class Processor {
          end: endByte,
       })
 
-      // Initialize nozzle position to start of print
-      if (this.nozzle && this.positionTracker.size > 0) {
-         const firstPosition = this.positionTracker.values().next().value
-         if (firstPosition) {
-            this.nozzle.setPosition({
-               x: firstPosition.x,
-               y: firstPosition.y,
-               z: firstPosition.z,
-            })
+      // Initialize nozzle position to start of print using WASM positions when available
+      if (this.nozzle) {
+         const firstIndex = 0
+         if (this.sortedPositions && this.sortedPositions.length > 0) {
+            const posData = this.getPositionDataForIndex(firstIndex)
+            if (posData) {
+               this.nozzle.setPosition({ x: posData.x, y: posData.y, z: posData.z })
+            }
          }
       }
 
@@ -249,7 +248,7 @@ export default class Processor {
    }
 
    private async loadFileStreamed(file: string) {
-      const chunkSize = 10000 // Process 10k lines at a time
+      const chunkSize = 100000 // Process 10k lines at a time
       let pos = 0
 
       // Track TypeScript processing if not already set
@@ -293,7 +292,14 @@ export default class Processor {
             this.processorProperties.filePosition = pos
             pos += line.length + 1 //Account for newlines that have been stripped
 
-            const gcodeLine = ProcessLine(this.processorProperties, line)
+            let gcodeLine: Base
+            try {
+               gcodeLine = ProcessLine(this.processorProperties, line)
+            } catch (error) {
+               console.error(`Error processing line ${idx + 1}: "${line}"`, error)
+               // Fallback to a comment to preserve indexing
+               gcodeLine = new Comment(this.processorProperties, line)
+            }
             this.gCodeLines.push(gcodeLine)
 
             // Batch store position data for nozzle tracking
@@ -412,26 +418,24 @@ export default class Processor {
          this.sortedPositions = Array.from(sortedPositions)
          this.processingStats.positionsExtracted = sortedPositions.length
 
-         // Build position tracker from WASM data
-         for (const pos of sortedPositions) {
-            const posData = this.wasmProcessor!.getPositionData(pos)
-            if (posData) {
-               this.positionTracker.set(pos, posData)
-            }
-         }
+         // No JS-side Map needed; we'll query WASM on demand for position data
 
          // Generate render buffers using WASM for maximum speed
          const renderStartTime = performance.now()
          console.log('🚀 Generating render buffers with WASM...')
 
          try {
-            const wasmRenderBuffers = this.wasmProcessor!.generateRenderBuffers(0.4, 0, (progress: number, label: string) => {
-               this.worker.postMessage({
-                  type: 'progress',
-                  progress: progress,
-                  label: label,
-               })
-            })
+            const wasmRenderBuffers = this.wasmProcessor!.generateRenderBuffers(
+               0.4,
+               0,
+               (progress: number, label: string) => {
+                  this.worker.postMessage({
+                     type: 'progress',
+                     progress: progress,
+                     label: label,
+                  })
+               },
+            )
             //const renderTime = performance.now() - renderStartTime
             //console.log(`✅ WASM generated ${wasmRenderBuffers.segmentCount.toFixed(2)} render segments in ${renderTime.toFixed(2)}ms`)
 
@@ -706,20 +710,76 @@ export default class Processor {
       })
    }
 
-   // 0 = Box
-   // 1 = cyl
-   // 2 = line
+   // 0 = Box, 1 = Cylinder, 2 = Line
    setMeshMode(mode) {
-      // this.scene.unfreezeActiveMeshes()
       mode = mode > 2 ? 0 : mode
-      this.meshes.forEach((m) => m.setEnabled(false))
-      for (let idx = mode; idx < this.meshes.length; idx += 3) {
-         this.meshes[idx].setEnabled(true)
-      }
-      this.lastMeshMode = mode
 
-      // Refresh material states to ensure correct lighting
+      // If we have WASM buffers, rebuild a single active mesh for this mode
+      const wasmBuffers = (this as any).wasmRenderBuffers
+      if (wasmBuffers && wasmBuffers.segmentCount > 0) {
+         this.rebuildWasmMeshForMode(mode, wasmBuffers)
+         this.lastMeshMode = mode
+         this.modelMaterial.forEach((m) => m.refreshMaterialState())
+         return
+      }
+
+      // Fallback: enable/disable existing meshes (TS/progressive path)
+      this.meshes.forEach((m) => m.setEnabled(false))
+      this.meshes.forEach((m) => {
+         const meshType = m.metadata?.meshType ?? (m.name === 'line' ? 2 : m.name === 'cyl' ? 1 : 0)
+         if (meshType === mode) m.setEnabled(true)
+      })
+      this.lastMeshMode = mode
       this.modelMaterial.forEach((m) => m.refreshMaterialState())
+   }
+
+   private rebuildWasmMeshForMode(mode: number, wasmBuffers: any) {
+      // Dispose existing active meshes
+      this.meshes.forEach((m) => {
+         this.scene.removeMesh(m, true)
+         m.dispose(false, true)
+      })
+      this.meshes = []
+      this.gpuPicker.clearRenderList()
+
+      // Build base mesh per mode and apply buffers
+      let mesh: Mesh
+      switch (mode) {
+         case 2: // line
+            mesh = MeshBuilder.CreateLines(
+               'line',
+               { points: [new Vector3(-0.5, 0, 0), new Vector3(0.5, 0, 0)] },
+               this.scene,
+            )
+            ;(mesh as any).metadata = { meshType: 2 }
+            {
+               const mm = this.addNewMaterial()
+               mm.setLineMesh(true)
+               mesh.material = mm.material
+            }
+            break
+         case 1: // cylinder
+            mesh = MeshBuilder.CreateCylinder('cyl', { height: 1, diameter: 1 }, this.scene)
+            mesh.locallyTranslate(new Vector3(0, 0, 0))
+            mesh.rotate(new Vector3(0, 0, 1), Math.PI / 2, Space.WORLD)
+            mesh.bakeCurrentTransformIntoVertices()
+            ;(mesh as any).metadata = { meshType: 1 }
+            mesh.material = this.addNewMaterial().material
+            break
+         case 0: // box
+         default:
+            mesh = MeshBuilder.CreateBox('box', { width: 1, height: 1, depth: 1 }, this.scene)
+            mesh.position = new Vector3(0, 0, 0)
+            mesh.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
+            mesh.bakeCurrentTransformIntoVertices()
+            ;(mesh as any).metadata = { meshType: 0 }
+            mesh.material = this.addNewMaterial().material
+            break
+      }
+
+      this.applyWasmBuffersToMesh(mesh, wasmBuffers)
+      this.meshes.push(mesh)
+      this.gpuPicker.addToRenderList(mesh)
    }
 
    testBuildMeshWithLOD(renderlines, segCount, alphaIndex, lodLevel: LODLevel): Mesh[] {
@@ -741,11 +801,15 @@ export default class Processor {
       box.position = new Vector3(0, 0, 0)
       box.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
       box.bakeCurrentTransformIntoVertices()
+      ;(box as any).metadata = { meshType: 0 }
+      ;(box as any).metadata = { meshType: 0 }
 
       let cyl = MeshBuilder.CreateCylinder('cyl', { height: 1, diameter: 1 }, this.scene)
       cyl.locallyTranslate(new Vector3(0, 0, 0))
       cyl.rotate(new Vector3(0, 0, 1), Math.PI / 2, Space.WORLD)
       cyl.bakeCurrentTransformIntoVertices()
+      ;(cyl as any).metadata = { meshType: 1 }
+      ;(cyl as any).metadata = { meshType: 1 }
 
       let line = MeshBuilder.CreateLines(
          'line',
@@ -754,6 +818,8 @@ export default class Processor {
          },
          this.scene,
       )
+      ;(line as any).metadata = { meshType: 2 }
+      ;(line as any).metadata = { meshType: 2 }
 
       // Use object pooling for better memory management
       const buffers = this.objectPools.getBuffersForSegmentCount(segCount)
@@ -831,11 +897,13 @@ export default class Processor {
       box.position = new Vector3(0, 0, 0)
       box.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
       box.bakeCurrentTransformIntoVertices()
+      ;(box as any).metadata = { meshType: 0 }
 
       let cyl = MeshBuilder.CreateCylinder('cyl', { height: 1, diameter: 1 }, this.scene)
       cyl.locallyTranslate(new Vector3(0, 0, 0))
       cyl.rotate(new Vector3(0, 0, 1), Math.PI / 2, Space.WORLD)
       cyl.bakeCurrentTransformIntoVertices()
+      ;(cyl as any).metadata = { meshType: 1 }
 
       let line = MeshBuilder.CreateLines(
          'line',
@@ -844,6 +912,7 @@ export default class Processor {
          },
          this.scene,
       )
+      ;(line as any).metadata = { meshType: 2 }
 
       let matrixData = new Float32Array(16 * segCount)
       let colorData = new Float32Array(4 * segCount)
@@ -999,9 +1068,8 @@ export default class Processor {
 
       function copyBuffers(m: Mesh) {
          //let matrixDataClone = Float32Array.from(matrixData) //new Float32Array(matrixData)
-         m.thinInstanceSetBuffer('matrix', matrixData, 16, true)
          m.doNotSyncBoundingInfo = true
-         m.thinInstanceRefreshBoundingInfo(false)
+         m.thinInstanceSetBuffer('matrix', matrixData, 16, true)
          m.thinInstanceSetBuffer('baseColor', colorData, 4, true)
          m.thinInstanceSetBuffer('pickColor', pickData, 3, true) //this holds the color ids for the mesh
          m.thinInstanceSetBuffer('filePosition', filePositionData, 1, true)
@@ -1009,6 +1077,7 @@ export default class Processor {
          m.thinInstanceSetBuffer('tool', toolData, 1, true)
          m.thinInstanceSetBuffer('feedRate', feedRate, 1, true)
          m.thinInstanceSetBuffer('isPerimeter', isPerimeter, 1, true)
+         m.thinInstanceRefreshBoundingInfo(false)
          //         m.freezeWorldMatrix()
          m.isPickable = false
       }
@@ -1087,55 +1156,24 @@ export default class Processor {
    }
 
    private updateNozzlePositionInstant(filePosition: number) {
-      if (!this.nozzle || this.positionTracker.size === 0) return
+      if (!this.nozzle) return
 
-      // Find the closest position in our tracker
-      let closestPosition = null
-      let minDistance = Infinity
-
-      for (const [pos, posData] of this.positionTracker) {
-         const distance = Math.abs(pos - filePosition)
-         if (distance < minDistance) {
-            minDistance = distance
-            closestPosition = posData
-         }
-      }
-
-      if (closestPosition) {
-         this.nozzle.setPosition({
-            x: closestPosition.x,
-            y: closestPosition.y,
-            z: closestPosition.z,
-         })
+      const posData = this.getPositionDataForFilePosition(filePosition)
+      if (posData) {
+         this.nozzle.setPosition({ x: posData.x, y: posData.y, z: posData.z })
       }
    }
 
    private updateNozzlePositionAnimated(filePosition: number) {
-      if (!this.nozzle || this.positionTracker.size === 0) return
+      if (!this.nozzle) return
 
-      // Find the closest position in our tracker
-      let closestPosition = null
-      let minDistance = Infinity
-      let closestFilePos = 0
-
-      for (const [pos, posData] of this.positionTracker) {
-         const distance = Math.abs(pos - filePosition)
-         if (distance < minDistance) {
-            minDistance = distance
-            closestPosition = posData
-            closestFilePos = pos
-         }
-      }
-
-      if (closestPosition) {
-         // Create a fake Move object for the nozzle animation
+      const closest = this.getPositionDataForFilePosition(filePosition)
+      if (closest) {
          const fakeMove = {
-            end: [closestPosition.x, closestPosition.y, closestPosition.z],
-            feedRate: closestPosition.feedRate,
-            extruding: closestPosition.extruding,
+            end: [closest.x, closest.y, closest.z],
+            feedRate: closest.feedRate,
+            extruding: closest.extruding,
          }
-
-         // Create movement and animate to it
          const movement = this.nozzle.createMovementFromGCode(fakeMove as any, this.nozzle.getCurrentPosition())
          this.nozzle.moveToPosition(movement)
       }
@@ -1173,21 +1211,13 @@ export default class Processor {
       const lodLevel = this.lodManager.getLODBySegmentCount(wasmBuffers.segmentCount)
       let meshes: Mesh[]
 
-      switch (lodLevel) {
-         case LODLevel.LOW:
-            meshes = this.createLineMeshFromWasmBuffers(wasmBuffers)
-            break
-         case LODLevel.MEDIUM:
-            meshes = this.createMediumDetailMeshFromWasmBuffers(wasmBuffers)
-            break
-         case LODLevel.HIGH:
-         default:
-            meshes = this.createHighDetailMeshFromWasmBuffers(wasmBuffers)
-            break
+      // Build only a single active mesh to reduce memory.
+      // Prefer user's last selection; otherwise map LOD LOW->line, MED/HIGH->box
+      let initialMode = this.lastMeshMode
+      if (initialMode === undefined || initialMode === null) {
+         initialMode = lodLevel === LODLevel.LOW ? 2 : 0
       }
-
-      this.meshes.push(...meshes)
-      this.gpuPicker.addToRenderList(meshes[0]) // Use the first mesh for picking
+      this.rebuildWasmMeshForMode(initialMode, wasmBuffers)
 
       // Update materials
       this.modelMaterial.forEach((m) => {
@@ -1250,7 +1280,19 @@ export default class Processor {
    }
 
    private createLineMeshFromWasmBuffers(wasmBuffers: any): Mesh[] {
-      // Create only line mesh for performance
+      // Create all three base meshes so any mesh mode can be enabled later
+      let box = MeshBuilder.CreateBox('box', { width: 1, height: 1, depth: 1 }, this.scene)
+      box.position = new Vector3(0, 0, 0)
+      box.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
+      box.bakeCurrentTransformIntoVertices()
+      ;(box as any).metadata = { meshType: 0 }
+
+      let cyl = MeshBuilder.CreateCylinder('cyl', { height: 1, diameter: 1 }, this.scene)
+      cyl.locallyTranslate(new Vector3(0, 0, 0))
+      cyl.rotate(new Vector3(0, 0, 1), Math.PI / 2, Space.WORLD)
+      cyl.bakeCurrentTransformIntoVertices()
+      ;(cyl as any).metadata = { meshType: 1 }
+
       let line = MeshBuilder.CreateLines(
          'line',
          {
@@ -1258,36 +1300,53 @@ export default class Processor {
          },
          this.scene,
       )
+      ;(line as any).metadata = { meshType: 2 }
 
+      // Assign materials
+      box.material = this.addNewMaterial().material
+      cyl.material = this.addNewMaterial().material
       let mm = this.addNewMaterial()
-      line.alphaIndex = 0
       line.material = mm.material
       mm.setLineMesh(true)
 
+      // Apply buffers to all meshes
+      this.applyWasmBuffersToMesh(box, wasmBuffers)
+      this.applyWasmBuffersToMesh(cyl, wasmBuffers)
       this.applyWasmBuffersToMesh(line, wasmBuffers)
 
-      return [line]
+      // Default to line visible only; mode switch will toggle
+      box.setEnabled(false)
+      cyl.setEnabled(false)
+      line.setEnabled(true)
+
+      return [box, cyl, line]
    }
 
    private applyWasmBuffersToMesh(mesh: Mesh, wasmBuffers: any) {
       // Apply WASM-generated buffer data directly to mesh
       const segmentCount = wasmBuffers.segmentCount
 
+      // Mark as static where possible and refresh bounds after all buffers
+      mesh.doNotSyncBoundingInfo = true
+
       // Set the matrix data (transformations)
-      mesh.thinInstanceSetBuffer('matrix', wasmBuffers.matrixData, 16, false)
+      mesh.thinInstanceSetBuffer('matrix', wasmBuffers.matrixData, 16, true)
 
       // Set color data (match attribute name used elsewhere)
-      mesh.thinInstanceSetBuffer('baseColor', wasmBuffers.colorData, 4, false)
+      mesh.thinInstanceSetBuffer('baseColor', wasmBuffers.colorData, 4, true)
 
       // Set other buffer data (use consistent attribute names and component sizes)
-      mesh.thinInstanceSetBuffer('pickColor', wasmBuffers.pickData, 3, false)
-      mesh.thinInstanceSetBuffer('filePosition', wasmBuffers.filePositionData, 1, false)
-      mesh.thinInstanceSetBuffer('filePositionEnd', wasmBuffers.fileEndPositionData, 1, false)
-      mesh.thinInstanceSetBuffer('tool', wasmBuffers.toolData, 1, false)
-      mesh.thinInstanceSetBuffer('feedRate', wasmBuffers.feedRateData, 1, false)
-      mesh.thinInstanceSetBuffer('isPerimeter', wasmBuffers.isPerimeterData, 1, false)
+      mesh.thinInstanceSetBuffer('pickColor', wasmBuffers.pickData, 3, true)
+      mesh.thinInstanceSetBuffer('filePosition', wasmBuffers.filePositionData, 1, true)
+      mesh.thinInstanceSetBuffer('filePositionEnd', wasmBuffers.fileEndPositionData, 1, true)
+      mesh.thinInstanceSetBuffer('tool', wasmBuffers.toolData, 1, true)
+      mesh.thinInstanceSetBuffer('feedRate', wasmBuffers.feedRateData, 1, true)
+      mesh.thinInstanceSetBuffer('isPerimeter', wasmBuffers.isPerimeterData, 1, true)
 
       mesh.thinInstanceCount = segmentCount
+
+      // Refresh bounds once
+      mesh.thinInstanceRefreshBoundingInfo(false)
 
       console.log(`📊 Applied WASM buffers to ${mesh.name}: ${segmentCount} instances`)
    }
@@ -1452,9 +1511,8 @@ export default class Processor {
       feedRate: Float32Array,
       isPerimeter: Float32Array,
    ) {
-      mesh.thinInstanceSetBuffer('matrix', matrixData, 16, true)
       mesh.doNotSyncBoundingInfo = true
-      mesh.thinInstanceRefreshBoundingInfo(false)
+      mesh.thinInstanceSetBuffer('matrix', matrixData, 16, true)
       mesh.thinInstanceSetBuffer('baseColor', colorData, 4, true)
       mesh.thinInstanceSetBuffer('pickColor', pickData, 3, true)
       mesh.thinInstanceSetBuffer('filePosition', filePositionData, 1, true)
@@ -1462,6 +1520,7 @@ export default class Processor {
       mesh.thinInstanceSetBuffer('tool', toolData, 1, true)
       mesh.thinInstanceSetBuffer('feedRate', feedRate, 1, true)
       mesh.thinInstanceSetBuffer('isPerimeter', isPerimeter, 1, true)
+      mesh.thinInstanceRefreshBoundingInfo(false)
       mesh.isPickable = false
    }
 
@@ -1582,7 +1641,7 @@ export default class Processor {
       }
 
       const nextFilePosition = this.sortedPositions[nextIndex]
-      const positionData = this.positionTracker.get(nextFilePosition)
+      const positionData = this.getPositionDataForIndex(nextIndex)
 
       if (positionData) {
          // Update file position to match animation progress - but don't trigger position change events
@@ -1669,7 +1728,7 @@ export default class Processor {
       // Find the closest position data for the nozzle
       const targetIndex = this.findClosestPositionIndex(targetFilePosition)
       if (targetIndex >= 0 && targetIndex < this.sortedPositions.length) {
-         const positionData = this.positionTracker.get(this.sortedPositions[targetIndex])
+         const positionData = this.getPositionDataForIndex(targetIndex)
          if (positionData) {
             // Set nozzle to the target position immediately
             this.nozzle.setPosition({
@@ -1710,28 +1769,84 @@ export default class Processor {
    }
 
    private findClosestPositionIndex(targetFilePosition: number): number {
+      // Prefer WASM search when available for accuracy/perf
+      if (this.wasmProcessor && this.sortedPositions.length > 0) {
+         try {
+            const closestFilePos = this.wasmProcessor.findClosestPosition(targetFilePosition)
+            if (closestFilePos !== undefined) {
+               // Map file position to index via binary search
+               let left = 0
+               let right = this.sortedPositions.length - 1
+               let best = 0
+               while (left <= right) {
+                  const mid = Math.floor((left + right) / 2)
+                  const val = this.sortedPositions[mid]
+                  if (val === closestFilePos) {
+                     return mid
+                  }
+                  if (val < closestFilePos) {
+                     best = mid
+                     left = mid + 1
+                  } else {
+                     right = mid - 1
+                  }
+               }
+               return best
+            }
+         } catch {}
+      }
+
+      // Fallback to local binary search
       let left = 0
       let right = this.sortedPositions.length - 1
       let closestIndex = 0
       let minDistance = Infinity
-
-      // Binary search for efficiency, then linear refinement for closest match
       while (left <= right) {
          const mid = Math.floor((left + right) / 2)
          const distance = Math.abs(this.sortedPositions[mid] - targetFilePosition)
-
          if (distance < minDistance) {
             minDistance = distance
             closestIndex = mid
          }
-
          if (this.sortedPositions[mid] < targetFilePosition) {
             left = mid + 1
          } else {
             right = mid - 1
          }
       }
-
       return closestIndex
+   }
+
+   private getPositionDataForIndex(index: number) {
+      if (index < 0 || index >= this.sortedPositions.length) return undefined
+      const filePos = this.sortedPositions[index]
+      if (this.wasmProcessor) {
+         try {
+            return this.wasmProcessor.getPositionData(filePos)
+         } catch {}
+      }
+      return this.positionTracker.get(filePos)
+   }
+
+   private getPositionDataForFilePosition(filePosition: number) {
+      if (this.wasmProcessor) {
+         try {
+            const pos = this.wasmProcessor.findClosestPosition(filePosition)
+            if (pos !== undefined) {
+               return this.wasmProcessor.getPositionData(pos)
+            }
+         } catch {}
+      }
+      // Fallback to JS map scan
+      let closest = undefined as any
+      let minDistance = Infinity
+      for (const [pos, data] of this.positionTracker) {
+         const d = Math.abs(pos - filePosition)
+         if (d < minDistance) {
+            minDistance = d
+            closest = data
+         }
+      }
+      return closest
    }
 }

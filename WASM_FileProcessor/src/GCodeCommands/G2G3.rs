@@ -136,12 +136,12 @@ pub fn parse_arc_move(
     // Use provided radius or calculated radius
     let arc_radius = radius.unwrap_or(calculated_radius);
     
-    // Determine if extruding
-    let extruding = if properties.absolute_extrusion {
-        e > properties.current_e + 0.0001
-    } else {
-        e > 0.0001
-    };
+    // Determine if extruding (match TypeScript behavior):
+    // - TS sets extruding true if an E parameter is present, regardless of value
+    // - Or when in CNC mode
+    // We also support absolute/relative E numerics, but presence of 'E' wins to mirror TS.
+    let has_e_param = line.as_bytes().iter().any(|&c| c == b'E' || c == b'e');
+    let extruding = has_e_param || properties.cnc_mode;
     
     // Update processor state
     properties.current_position = end_pos.clone();
@@ -179,7 +179,8 @@ pub fn parse_arc_move(
         radius: arc_radius,
         clockwise: is_clockwise,
         extruding,
-        color: properties.current_tool.color.clone(),
+        // Match TS: arc color derives from slicer feature color, not tool color
+        color: properties.current_feature_color.clone(),
         feed_rate,
         segments: vec![], // Will be populated during rendering if needed
     };

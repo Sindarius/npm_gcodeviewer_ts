@@ -15,6 +15,9 @@ export default class GPUPicker {
    colorTestCallBack: any
    currentPosition: number = 0
    renderTargetMeshs: Mesh[] = []
+   enabled: boolean = true
+   throttleMs: number = 50
+   private _lastReadTime: number = 0
 
    //  shaderMaterial: CustomMaterial
    shaderMaterial: ShaderMaterial
@@ -51,14 +54,22 @@ export default class GPUPicker {
 
       let isEnabled = false
       this.renderTarget.onBeforeRenderObservable.add(() => {
+         if (!this.enabled) return
          if (this.renderTargetMeshs) {
             isEnabled = this.renderTargetMeshs[0]?.isEnabled() ?? false
             this.renderTargetMeshs.forEach((m) => m.setEnabled(true))
-         } else {
-            //console.log('no target')
          }
       })
       this.renderTarget.onAfterRenderObservable.add(() => {
+         if (!this.enabled) return
+         const now = performance.now()
+         if (now - this._lastReadTime < this.throttleMs) {
+            // restore mesh enable state even if skipping readback
+            if (this.renderTargetMeshs && !isEnabled) this.renderTargetMeshs.forEach((m) => m.setEnabled(false))
+            return
+         }
+         this._lastReadTime = now
+
          const x = Math.round(this.scene.pointerX)
          const y = this.height - Math.round(this.scene.pointerY)
 
@@ -74,10 +85,8 @@ export default class GPUPicker {
          if (this.colorTestCallBack) {
             this.colorTestCallBack(pixels)
          }
-         if (this.renderTargetMeshs) {
-            if (!isEnabled) this.renderTargetMeshs.forEach((m) => m.setEnabled(false))
-         } else {
-            //console.log('no target')
+         if (this.renderTargetMeshs && !isEnabled) {
+            this.renderTargetMeshs.forEach((m) => m.setEnabled(false))
          }
       })
    }
@@ -114,10 +123,22 @@ export default class GPUPicker {
       this.currentPosition = currentPosition
       this.shaderMaterial.setFloat('currentPosition', this.currentPosition)
    }
+
+   setEnabled(enabled: boolean) {
+      this.enabled = enabled
+      // Skip whole render pass when disabled
+      // @ts-ignore - property exists on RenderTargetTexture
+      ;(this.renderTarget as any).skipRendering = !enabled
+   }
+
+   setThrottleMs(ms: number) {
+      this.throttleMs = Math.max(0, ms | 0)
+   }
 }
 
 const vertexShader = `
 // Vertex shader
+#define THIN_INSTANCES
 #if defined(WEBGL2) || defines(WEBGPU)
 precision highp sampler2DArray;
 #endif
