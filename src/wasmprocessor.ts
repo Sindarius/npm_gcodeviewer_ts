@@ -31,6 +31,7 @@ export interface WasmRenderBuffers {
 export class WasmProcessor {
     private processor: GCodeProcessor | null = null;
     private initialized: boolean = false;
+    private pseudoProgress: number = 0;
 
     async initialize(): Promise<void> {
         if (!this.initialized) {
@@ -49,7 +50,29 @@ export class WasmProcessor {
             throw new Error('WASM processor not initialized. Call initialize() first.');
         }
 
-        const result: ProcessingResult = this.processor.process_file(content, progressCallback);
+        // Reset pseudo progress for this phase
+        this.pseudoProgress = 0;
+
+        // Normalize callback arity coming from WASM glue (some builds may pass only label)
+        const cb = progressCallback
+            ? ((a: any, b?: any) => {
+                  if (typeof a === 'number') {
+                     progressCallback(a, typeof b === 'string' ? b : '')
+                  } else if (typeof a === 'string') {
+                     // No numeric progress provided; synthesize a smooth progress
+                     const label = a
+                     const done = /complete/i.test(label)
+                     if (done) {
+                        this.pseudoProgress = 1
+                     } else {
+                        this.pseudoProgress = Math.min(0.99, this.pseudoProgress + 0.02)
+                     }
+                     progressCallback(this.pseudoProgress, label)
+                  }
+               })
+            : undefined
+
+        const result: ProcessingResult = this.processor.process_file(content, cb as any);
         
         return {
             success: result.success,
@@ -108,7 +131,20 @@ export class WasmProcessor {
             throw new Error('WASM processor not initialized');
         }
 
-        const renderBuffers: RenderBuffers = this.processor.generate_render_buffers(nozzleSize, padding, progressCallback);
+        const cb = progressCallback
+            ? ((a: any, b?: any) => {
+                  if (typeof a === 'number') {
+                     progressCallback(a, typeof b === 'string' ? b : '')
+                  } else if (typeof a === 'string') {
+                     progressCallback(Number.NaN, a)
+                  }
+               })
+            : undefined
+
+        // Reset pseudo progress for render buffer generation
+        this.pseudoProgress = 0;
+
+        const renderBuffers: RenderBuffers = this.processor.generate_render_buffers(nozzleSize, padding, cb as any);
         
         return {
             segmentCount: renderBuffers.segment_count,

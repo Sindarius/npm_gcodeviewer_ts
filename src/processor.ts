@@ -388,9 +388,11 @@ export default class Processor {
 
          // Process file with WASM for position extraction and basic analysis
          const result = await this.wasmProcessor!.processFile(file, (progress: number, label: string) => {
+            const prog = typeof progress === 'number' && isFinite(progress) ? progress : this.lastReportedProgress
+            this.lastReportedProgress = prog
             this.worker.postMessage({
                type: 'progress',
-               progress: progress,
+               progress: prog,
                label: `WASM: ${label}`,
             })
          })
@@ -436,9 +438,11 @@ export default class Processor {
                0.4,
                0,
                (progress: number, label: string) => {
+                  const prog = typeof progress === 'number' && isFinite(progress) ? progress : this.lastReportedProgress
+                  this.lastReportedProgress = prog
                   this.worker.postMessage({
                      type: 'progress',
-                     progress: progress,
+                     progress: prog,
                      label: label,
                   })
                },
