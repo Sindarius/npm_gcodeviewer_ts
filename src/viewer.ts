@@ -138,6 +138,11 @@ export default class Viewer {
          this.offscreenCanvas.width,
          this.offscreenCanvas.height,
       )
+      // Enable scissored picking by default for performance
+      if (this.processor.gpuPicker.enableScissor) {
+         this.processor.gpuPicker.enableScissor(true)
+         this.processor.gpuPicker.setScissorSize(16)
+      }
       
       // Initialize nozzle
       this.processor.initNozzle(0.4)

@@ -69,4 +69,8 @@ export default class ViewerDirect {
    setPerimeterOnly(perimeterOnly: boolean): void {
       this.viewer.processor.setPerimeterOnly(perimeterOnly)
    }
+
+   setPlaybackSpeed(multiplier: number): void {
+      this.viewer.processor.setPlaybackSpeed(multiplier)
+   }
 }

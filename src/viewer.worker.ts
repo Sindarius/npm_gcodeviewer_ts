@@ -106,6 +106,16 @@ self.addEventListener('message', async (message) => {
             }
          }
          break
+      case 'setPickingScissor':
+         if (self.viewer?.processor?.gpuPicker) {
+            const enabled = !!message.data?.enabled
+            const size = typeof message.data?.size === 'number' ? message.data.size : undefined
+            if (self.viewer.processor.gpuPicker.enableScissor) {
+               self.viewer.processor.gpuPicker.enableScissor(enabled)
+               if (size) self.viewer.processor.gpuPicker.setScissorSize(size)
+            }
+         }
+         break
       case 'perimeterOnly':
          self.viewer.processor.setPerimeterOnly(message.data.perimeterOnly)
          break
@@ -132,6 +142,9 @@ self.addEventListener('message', async (message) => {
          break
       case 'stopNozzleAnimation':
          self.viewer.processor.stopNozzleAnimation()
+         break
+      case 'setPlaybackSpeed':
+         self.viewer.processor.setPlaybackSpeed(message.data.multiplier)
          break
       case 'enableWasmProcessing':
          try {

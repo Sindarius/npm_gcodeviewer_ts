@@ -187,10 +187,11 @@ export default class Nozzle {
       // Calculate realistic duration based on feedrate and animation speed multiplier
       const realDurationMs = (distance / movement.feedRate) * 60000 // Convert mm/min to ms
       const scaledDuration = realDurationMs / this.animationSpeed
-      
-      // Clamp to reasonable bounds for visualization
-      const finalDuration = Math.max(50, Math.min(scaledDuration, 3000))
-      
+
+      // Clamp conservatively to avoid runaway tweens but preserve near-real timing
+      // Allow long moves up to 60s; allow very fast moves down to 5ms
+      const finalDuration = Math.max(5, Math.min(scaledDuration, 60000))
+
       return finalDuration
    }
 
@@ -289,7 +290,7 @@ export default class Nozzle {
     * Set animation speed multiplier
     */
    setAnimationSpeed(speed: number): void {
-      this.animationSpeed = Math.max(0.1, Math.min(speed, 10.0))
+      this.animationSpeed = Math.max(0.05, Math.min(speed, 50.0))
    }
 
    getAnimationSpeed(): number {

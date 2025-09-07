@@ -100,7 +100,12 @@ export default class LineShaderMaterial {
 
          if(focusedPickColor == pickColor && !(currentPosition >= filePosition && currentPosition <= filePositionEnd)) 
          {
-            vDiffColor = vec3(1, 1, 1) - vDiffColor.rgb;
+            // High-contrast highlight: combine inversion with luminance-based BW
+            float baseLuma = dot(vDiffColor, vec3(0.2126, 0.7152, 0.0722));
+            vec3 inv = vec3(1.0) - vDiffColor.rgb;
+            vec3 bw = baseLuma > 0.5 ? vec3(0.0) : vec3(1.0);
+            vec3 highlight = mix(inv, bw, 0.5);
+            vDiffColor = mix(vDiffColor, highlight, 0.9);
             focused = 1.;
          }
          else if (flagRetraction) // Retraction/priming segments are discarded

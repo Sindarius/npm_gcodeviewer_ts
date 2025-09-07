@@ -18,6 +18,11 @@ export default class GPUPicker {
    enabled: boolean = true
    throttleMs: number = 50
    private _lastReadTime: number = 0
+   // Optional scissor optimization
+   private _useScissor: boolean = false
+   private _scissorSize: number = 16
+   private _lastScissorX: number = 0
+   private _lastScissorY: number = 0
 
    //  shaderMaterial: CustomMaterial
    shaderMaterial: ShaderMaterial
@@ -59,9 +64,32 @@ export default class GPUPicker {
             isEnabled = this.renderTargetMeshs[0]?.isEnabled() ?? false
             this.renderTargetMeshs.forEach((m) => m.setEnabled(true))
          }
+
+         // Optionally scissor the render area around the pointer to reduce fragment work
+         if (this._useScissor) {
+            const gl: WebGLRenderingContext | WebGL2RenderingContext | undefined = (this.engine as any)?._gl
+            if (gl) {
+               const hx = Math.max(1, (this._scissorSize | 0))
+               const half = Math.floor(hx / 2)
+               const px = Math.round(this.scene.pointerX)
+               const py = Math.round(this.scene.pointerY)
+               // Convert to RTT coordinates (origin bottom-left)
+               this._lastScissorX = Math.max(0, Math.min(this.width - hx, px - half))
+               this._lastScissorY = Math.max(0, Math.min(this.height - hx, this.height - py - half))
+               gl.enable(gl.SCISSOR_TEST)
+               gl.scissor(this._lastScissorX, this._lastScissorY, hx, hx)
+            }
+         }
       })
       this.renderTarget.onAfterRenderObservable.add(() => {
          if (!this.enabled) return
+         // Restore scissor state
+         if (this._useScissor) {
+            const gl: WebGLRenderingContext | WebGL2RenderingContext | undefined = (this.engine as any)?._gl
+            if (gl) {
+               gl.disable(gl.SCISSOR_TEST)
+            }
+         }
          const now = performance.now()
          if (now - this._lastReadTime < this.throttleMs) {
             // restore mesh enable state even if skipping readback
@@ -134,6 +162,15 @@ export default class GPUPicker {
    setThrottleMs(ms: number) {
       this.throttleMs = Math.max(0, ms | 0)
    }
+
+   // Enable/disable scissor optimization (limits pick pass to a small region around the pointer)
+   enableScissor(enabled: boolean) {
+      this._useScissor = !!enabled
+   }
+
+   setScissorSize(sizePx: number) {
+      this._scissorSize = Math.max(1, sizePx | 0)
+   }
 }
 
 const vertexShader = `
@@ -197,19 +234,17 @@ flat in float fTool;
 #include<helperFunctions>
 
 void main(void) {
-   if(vShow < 0.0f || fTool >= 255.0)
-   {
+   // Decode packed tool + flags if present: toolIndex + 1024*(b0=travel,...)
+   float flags = floor(fTool / 1024.0);
+   bool flagTravel = mod(flags, 2.0) >= 1.0;
+   // Backward compatibility: old travel encoded as tool >= 254
+   // Legacy travel encoding applies only when no packed flags are present
+   bool legacyTravel = (fTool < 1024.0) && (fTool >= 254.0);
+
+   if(vShow < 0.0 || flagTravel || legacyTravel) {
       discard;
-   }
-   else
-   {
-      gl_FragColor = vPickColor;
-      #ifdef CONVERTTOLINEAR0
-      gl_FragColor = toLinearSpace(gl_FragColor);
-      #endif
-      #ifdef CONVERTTOGAMMA0
-      gl_FragColor = toGammaSpace(gl_FragColor);
-      #endif
+   } else {
+      gl_FragColor = vPickColor; // Write raw color, no conversions to preserve ID fidelity
       #if defined(PREPASS)
       gl_FragData[0] = gl_FragColor;
       #endif

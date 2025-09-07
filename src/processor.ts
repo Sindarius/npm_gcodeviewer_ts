@@ -102,8 +102,8 @@ export default class Processor {
    initNozzle(diameter: number = 0.4) {
       if (this.scene) {
          this.nozzle = new Nozzle(this.scene, diameter)
-         // Set faster animation speed for simulation
-         this.nozzle.setAnimationSpeed(10.0)
+         // Default to 1x (real-time) animation; controllable via setPlaybackSpeed
+         this.nozzle.setAnimationSpeed(1.0)
          console.log('Nozzle initialized and ready for animation')
       }
    }
@@ -138,6 +138,11 @@ export default class Processor {
       this.gCodeLines = []
       this.processorProperties = new ProcessorProperties() //Reset for now
       this.processorProperties.slicer = slicerFactory(file)
+
+      // Reset progress indicator early so UI shows immediately
+      this.lastReportedProgress = 0
+      this.lastReportedChunk = 0
+      this.worker.postMessage({ type: 'progress', progress: 0, label: 'Loading file' })
 
       // Reset processing stats
       const startTime = performance.now()
@@ -1474,6 +1479,13 @@ export default class Processor {
             )
          }
       }
+
+      // Ensure UI progress reaches 100% when compatibility objects are ready
+      this.worker.postMessage({
+         type: 'progress',
+         progress: 1,
+         label: 'Ready',
+      })
    }
 
    private buildBuffersHelper(
@@ -1547,6 +1559,12 @@ export default class Processor {
    }
 
    // Animation control methods
+   setPlaybackSpeed(multiplier: number): void {
+      if (this.nozzle) {
+         this.nozzle.setAnimationSpeed(multiplier)
+      }
+   }
+
    startNozzleAnimation(): void {
       if (!this.nozzle || this.sortedPositions.length === 0) {
          console.warn('Cannot start animation: nozzle or positions not available')

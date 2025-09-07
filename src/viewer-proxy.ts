@@ -242,6 +242,12 @@ export default class ViewerProxy {
       this.webWorker.postMessage({ type: 'setPickingRate', hz })
    }
 
+   setPickingScissor(enabled: boolean, size?: number): void {
+      const payload: any = { type: 'setPickingScissor', enabled }
+      if (typeof size === 'number') payload.size = size
+      this.webWorker.postMessage(payload)
+   }
+
    setPerimeterOnly(perimeterOnly: boolean): void {
       this.webWorker.postMessage({ type: 'perimeterOnly', perimeterOnly: perimeterOnly })
    }
@@ -264,6 +270,12 @@ export default class ViewerProxy {
 
    stopNozzleAnimation(): void {
       this.webWorker.postMessage({ type: 'stopNozzleAnimation' })
+   }
+
+   setPlaybackSpeed(multiplier: number): void {
+      if (multiplier && multiplier > 0) {
+         this.webWorker.postMessage({ type: 'setPlaybackSpeed', multiplier })
+      }
    }
 
    enableWasmProcessing(): Promise<void> {
