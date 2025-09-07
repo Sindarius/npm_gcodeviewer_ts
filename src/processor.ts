@@ -1337,7 +1337,14 @@ export default class Processor {
          pickData.set([line.colorId[0] / 255, line.colorId[1] / 255, line.colorId[2] / 255], idx * 3)
          filePositionData.set([line.filePosition], idx) //Record the file position with the mesh
          fileEndPositionData.set([line.filePosition + line.line.length], idx) //Record the file position with the mesh
-         toolData.set([line.tool], idx)
+         // Pack tool index + flags like WASM so shader logic is consistent
+         const isTravel = (line as any).extruding === false || line.lineType === 'T'
+         const isPerimeterFlag = (line as any).isPerimeter ? 2 : 0
+         const travelFlag = isTravel ? 1 : 0
+         const flags = travelFlag | isPerimeterFlag
+         const toolIndex = Math.max(0, Math.min(1023, (line as any).tool | 0))
+         const packed = toolIndex + flags * 1024.0
+         toolData.set([packed], idx)
          feedRate.set([line.feedRate], idx)
          isPerimeter.set([line.isPerimeter ? 1 : 0], idx)
       }
@@ -1673,22 +1680,7 @@ export default class Processor {
       // Refresh bounds once
       mesh.thinInstanceRefreshBoundingInfo(false)
 
-      // Debug a small sample of tool indices/flags to verify proper packing
-      try {
-         const sample = Math.min(5, wasmBuffers.toolData.length)
-         const decoded = [] as any[]
-         for (let i = 0; i < sample; i++) {
-            const v = wasmBuffers.toolData[i]
-            const flags = Math.floor(v / 1024.0)
-            const idx = Math.floor(v - flags * 1024.0)
-            decoded.push({ idx, flags, raw: v })
-         }
-         // eslint-disable-next-line no-console
-         console.log(`[Material] toolData sample for ${mesh.name}`, decoded)
-      } catch {}
-
-      // eslint-disable-next-line no-console
-      console.log(`📊 Applied WASM buffers to ${mesh.name}: ${segmentCount} instances`)
+      // All buffers applied
    }
 
    private processRenderLines(
@@ -1886,8 +1878,12 @@ export default class Processor {
    }
 
    async setPerimeterOnly(perimeterOnly) {
-      this.perimeterOnly = perimeterOnly
-      await this.loadFile(this.originalFile)
+      this.perimeterOnly = !!perimeterOnly
+      // Update materials and picker without reprocessing
+      this.modelMaterial.forEach((m) => m.setPerimeterOnly(this.perimeterOnly))
+      if (this.gpuPicker && (this.gpuPicker as any).setPerimeterOnly) {
+         ;(this.gpuPicker as any).setPerimeterOnly(this.perimeterOnly)
+      }
    }
 
    showSupports(show) {

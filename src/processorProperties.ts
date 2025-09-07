@@ -113,20 +113,8 @@ export default class ProcessorProperties {
             toolArray[i * 4 + 3] = p[3]
          }
       }
-      // Debug summary of colors set
-      try {
-         const first = Array.from(toolArray.slice(0, 20))
-         // eslint-disable-next-line no-console
-         console.log('[Tools] toolColors (first 5 vec4)', {
-            t0: first.slice(0, 4),
-            t1: first.slice(4, 8),
-            t2: first.slice(8, 12),
-            t3: first.slice(12, 16),
-            t4: first.slice(16, 20),
-         })
-      } catch {}
       return Array.from(toolArray)
-  }
+   }
 
    constructor() {
       this.workplaceOffsets.push(new Vector3(0, 0, 0)) //set a default workplace if we do not have workplaces
