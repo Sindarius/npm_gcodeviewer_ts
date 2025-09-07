@@ -153,10 +153,11 @@ export default class LineShaderMaterial {
             }
          }
 
-         //Final Results
-         gl_Position = viewProjection * finalWorld *  vec4(position, 1.0);
-         mat4 n =transpose(inverse(worldView * finalWorld));
-         eye_normal = (n * (vec4(normal , 1.0) * vec4(position,1.)) ).xyz;
+         // Final position
+         gl_Position = viewProjection * finalWorld * vec4(position, 1.0);
+         // Proper normal transform in world space using instance matrix
+         mat3 normalMat = transpose(inverse(mat3(finalWorld)));
+         eye_normal = normalize(normalMat * normal);
    }`
 
    static readonly fragmentShader = `
@@ -230,7 +231,7 @@ export default class LineShaderMaterial {
       this.buildMaterial()
    }
 
-   buildMaterial() {
+  buildMaterial() {
       this.material = new ShaderMaterial(
          `line_shader`,
          this.scene,
@@ -286,13 +287,15 @@ export default class LineShaderMaterial {
             .setBool('perimeterOnly', false)
       })
 
-      //Per loop
+      //Per loop and per-bind uniforms
       var time = 0
       this.material.onBindObservable.add(() => {
+         const eff = this.material.getEffect()
          time += this.scene.getEngine().getDeltaTime()
-         this.material.getEffect()?.setFloat('utime', time)
-
-         //this.material.getEffect()?.setFloat4('progresscolor', 0, 1, 0, 1.0)
+         eff?.setFloat('utime', time)
+         // Always enforce current mesh mode and render mode on bind to avoid stale state
+         eff?.setBool('lineMesh', this.isLineMesh)
+         eff?.setInt('renderMode', this.renderMode)
       })
    }
 
@@ -366,18 +369,11 @@ export default class LineShaderMaterial {
       })
    }
 
-   setLineMesh(mode: boolean) {
+  setLineMesh(mode: boolean) {
       this.isLineMesh = mode
-      
-      // Immediate update if effect is ready
-      if (this.material.getEffect()?.isReady()) {
-         this.material.getEffect()?.setBool('lineMesh', mode)
-      }
-      
-      // Also schedule update for next bind in case effect wasn't ready
-      this.material.onBindObservable.addOnce(() => {
-         this.material.getEffect()?.setBool('lineMesh', mode)
-      })
+      // Uniform is now driven each bind; still push immediate if ready
+      const eff = this.material.getEffect()
+      if (eff?.isReady()) eff.setBool('lineMesh', mode)
    }
 
    showSupports(show: boolean) {
