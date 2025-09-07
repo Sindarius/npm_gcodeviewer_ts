@@ -34,22 +34,22 @@ impl Vector3 {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Color4 {
-    pub r: f64,
-    pub g: f64,
-    pub b: f64,
-    pub a: f64,
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
 }
 
 impl Color4 {
     pub fn new(r: f64, g: f64, b: f64, a: f64) -> Self {
-        Self { r, g, b, a }
+        Self { r: r as f32, g: g as f32, b: b as f32, a: a as f32 }
     }
     
     pub fn white() -> Self {
         Self::new(1.0, 1.0, 1.0, 1.0)
     }
     
-    pub fn to_array(&self) -> [f64; 4] {
+    pub fn to_array(&self) -> [f32; 4] {
         [self.r, self.g, self.b, self.a]
     }
 }

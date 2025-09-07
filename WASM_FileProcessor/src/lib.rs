@@ -173,18 +173,18 @@ impl RenderBuffers {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct PositionData {
     // End position (current interface compatibility)
-    x: f64,
-    y: f64,
-    z: f64,
-    feed_rate: f64,
+    x: f32,
+    y: f32,
+    z: f32,
+    feed_rate: f32,
     extruding: bool,
     
     // Additional data for proper rendering (like TypeScript Move class)
-    start_x: f64,
-    start_y: f64,
-    start_z: f64,
-    length: f64,
-    layer_height: f64,
+    start_x: f32,
+    start_y: f32,
+    start_z: f32,
+    length: f32,
+    layer_height: f32,
     is_perimeter: bool,
     is_support: bool,
     
@@ -201,9 +201,9 @@ impl PositionData {
     #[wasm_bindgen(constructor)]
     pub fn new(x: f64, y: f64, z: f64, feed_rate: f64, extruding: bool) -> PositionData {
         PositionData { 
-            x, y, z, feed_rate, extruding,
+            x: x as f32, y: y as f32, z: z as f32, feed_rate: feed_rate as f32, extruding,
             // Default values for backward compatibility
-            start_x: x, start_y: y, start_z: z,
+            start_x: x as f32, start_y: y as f32, start_z: z as f32,
             length: 0.0, layer_height: 0.2, is_perimeter: true, is_support: false,
             color: Color4::white(), line_number: 0, file_position: 0, file_end_position: 0, tool: 0
         }
@@ -218,10 +218,10 @@ impl PositionData {
         let length = ((end_x - start_x).powi(2) + (end_y - start_y).powi(2) + (end_z - start_z).powi(2)).sqrt();
         
         PositionData { 
-            x: end_x, y: end_y, z: end_z, 
-            feed_rate, extruding,
-            start_x, start_y, start_z,
-            length, layer_height, is_perimeter, is_support: false,
+            x: end_x as f32, y: end_y as f32, z: end_z as f32, 
+            feed_rate: feed_rate as f32, extruding,
+            start_x: start_x as f32, start_y: start_y as f32, start_z: start_z as f32,
+            length: length as f32, layer_height: layer_height as f32, is_perimeter, is_support: false,
             color: Color4::white(), line_number: 0, file_position: 0, file_end_position: 0, tool: 0
         }
     }
@@ -236,45 +236,45 @@ impl PositionData {
         let length = ((end_x - start_x).powi(2) + (end_y - start_y).powi(2) + (end_z - start_z).powi(2)).sqrt();
         
         PositionData { 
-            x: end_x, y: end_y, z: end_z, 
-            feed_rate, extruding,
-            start_x, start_y, start_z,
-            length, layer_height, is_perimeter, is_support,
+            x: end_x as f32, y: end_y as f32, z: end_z as f32, 
+            feed_rate: feed_rate as f32, extruding,
+            start_x: start_x as f32, start_y: start_y as f32, start_z: start_z as f32,
+            length: length as f32, layer_height: layer_height as f32, is_perimeter, is_support,
             color, line_number, file_position, file_end_position, tool
         }
     }
     
     // Getters for existing interface
     #[wasm_bindgen(getter)]
-    pub fn x(&self) -> f64 { self.x }
+    pub fn x(&self) -> f64 { self.x as f64 }
     
     #[wasm_bindgen(getter)]
-    pub fn y(&self) -> f64 { self.y }
+    pub fn y(&self) -> f64 { self.y as f64 }
     
     #[wasm_bindgen(getter)]
-    pub fn z(&self) -> f64 { self.z }
+    pub fn z(&self) -> f64 { self.z as f64 }
     
     #[wasm_bindgen(getter)]
-    pub fn feed_rate(&self) -> f64 { self.feed_rate }
+    pub fn feed_rate(&self) -> f64 { self.feed_rate as f64 }
     
     #[wasm_bindgen(getter)]
     pub fn extruding(&self) -> bool { self.extruding }
     
     // Additional getters for new data
     #[wasm_bindgen(getter)]
-    pub fn start_x(&self) -> f64 { self.start_x }
+    pub fn start_x(&self) -> f64 { self.start_x as f64 }
     
     #[wasm_bindgen(getter)]
-    pub fn start_y(&self) -> f64 { self.start_y }
+    pub fn start_y(&self) -> f64 { self.start_y as f64 }
     
     #[wasm_bindgen(getter)]
-    pub fn start_z(&self) -> f64 { self.start_z }
+    pub fn start_z(&self) -> f64 { self.start_z as f64 }
     
     #[wasm_bindgen(getter)]
-    pub fn length(&self) -> f64 { self.length }
+    pub fn length(&self) -> f64 { self.length as f64 }
     
     #[wasm_bindgen(getter)]
-    pub fn layer_height(&self) -> f64 { self.layer_height }
+    pub fn layer_height(&self) -> f64 { self.layer_height as f64 }
     
     #[wasm_bindgen(getter)]
     pub fn is_perimeter(&self) -> bool { self.is_perimeter }
@@ -296,7 +296,7 @@ impl PositionData {
 #[wasm_bindgen]
 pub struct GCodeProcessor {
     processor: FileProcessor,
-    position_tracker: HashMap<u32, PositionData>,
+    positions: Vec<PositionData>,
     sorted_positions: Vec<u32>,
 }
 
@@ -308,7 +308,7 @@ impl GCodeProcessor {
         
         GCodeProcessor {
             processor: FileProcessor::new(),
-            position_tracker: HashMap::new(),
+            positions: Vec::new(),
             sorted_positions: Vec::new(),
         }
     }
@@ -323,31 +323,33 @@ impl GCodeProcessor {
         console_log!("Starting to process file with {} bytes", file_content.len());
         
         // Clear previous data
-        self.position_tracker.clear();
+        self.positions.clear();
         self.sorted_positions.clear();
         
         // Process the file
         match self.processor.process_file_content(file_content, progress_callback) {
-            Ok((gcode_lines, positions)) => {
-                // Store position data
-                self.position_tracker = positions.into_iter()
-                    .map(|(pos, data)| (pos, data))
-                    .collect();
-                
-                // Sort positions for animation
-                self.sorted_positions = self.position_tracker.keys().cloned().collect();
-                self.sorted_positions.sort();
+            Ok((_gcode_lines, positions)) => {
+                // positions is Vec<(file_position, PositionData)>; sort and split
+                let mut pairs = positions;
+                pairs.sort_by_key(|(pos, _)| *pos);
+                self.sorted_positions = pairs.iter().map(|(pos, _)| *pos).collect();
+                self.positions = pairs.into_iter().map(|(_, data)| data).collect();
                 
                 let processing_time = js_sys::Date::now() - start_time;
-                
-                console_log!("File processing completed: {} lines, {} positions, {:.2}ms", 
-                           gcode_lines.len(), self.position_tracker.len(), processing_time);
+                // Use statistics from processor to avoid depending on retained line vector
+                let stats = self.processor.get_statistics();
+                console_log!(
+                    "File processing completed: {} lines, {} positions, {:.2}ms",
+                    stats.line_count,
+                    self.positions.len(),
+                    processing_time
+                );
                 
                 ProcessingResult {
                     success: true,
                     error_message: String::new(),
-                    line_count: gcode_lines.len(),
-                    move_count: self.position_tracker.len(),
+                    line_count: stats.line_count as usize,
+                    move_count: self.positions.len(),
                     processing_time_ms: processing_time,
                 }
             }
@@ -368,7 +370,10 @@ impl GCodeProcessor {
     /// Get position data for a specific file position
     #[wasm_bindgen]
     pub fn get_position_data(&self, file_position: u32) -> Option<PositionData> {
-        self.position_tracker.get(&file_position).cloned()
+        match self.sorted_positions.binary_search(&file_position) {
+            Ok(idx) => self.positions.get(idx).cloned(),
+            Err(_) => None,
+        }
     }
     
     /// Get all sorted positions (for animation)
@@ -380,7 +385,7 @@ impl GCodeProcessor {
     /// Get position count
     #[wasm_bindgen]
     pub fn get_position_count(&self) -> usize {
-        self.position_tracker.len()
+        self.positions.len()
     }
     
     /// Find closest position to a target file position
@@ -417,10 +422,10 @@ impl GCodeProcessor {
     #[wasm_bindgen]
     pub fn generate_render_buffers(&self, nozzle_size: f32, padding: f32, progress_callback: Option<ProgressCallback>) -> RenderBuffers {
         let start_time = js_sys::Date::now();
-        console_log!("Generating render buffers for {} positions", self.position_tracker.len());
+        console_log!("Generating render buffers for {} positions", self.positions.len());
 
         // Pre-allocate vectors with estimated capacity
-        let capacity = self.position_tracker.len();
+        let capacity = self.positions.len();
         let mut matrix_data = Vec::with_capacity(capacity * 16); // 4x4 matrix = 16 floats
         let mut color_data = Vec::with_capacity(capacity * 4);   // RGBA = 4 floats
         let mut pick_data = Vec::with_capacity(capacity * 3);   // RGB = 3 floats per segment
@@ -436,8 +441,8 @@ impl GCodeProcessor {
         let mut last_report_time_ms = js_sys::Date::now();
 
         // Process positions in sorted order for consistency
-        for &position in &self.sorted_positions {
-            if let Some(pos_data) = self.position_tracker.get(&position) {
+        for (i, &position) in self.sorted_positions.iter().enumerate() {
+            if let Some(pos_data) = self.positions.get(i) {
                 // Include both extruding and travel moves
                     // Calculate matrix components (equivalent to TypeScript renderLine())
                     let (matrix, color) = self.calculate_render_matrix(pos_data, nozzle_size, padding);
@@ -453,14 +458,14 @@ impl GCodeProcessor {
                     pick_data.extend_from_slice(&color_id); // RGB color for picking (matches TypeScript colorId/255)
                     file_position_data.push(position as f32);
                     file_end_position_data.push(pos_data.file_end_position as f32);
-                    // Pack tool index + flags to reduce attribute count
-                    // Bits: 0=travel, 1=perimeter, 2=support, 3=retraction/priming
+                    // Pack tool index + flags into a single float (as before)
+                    // Bits: 0=travel, 1=perimeter, 2=support, 3=retraction
                     let mut flags: u32 = 0;
                     let is_travel = !pos_data.extruding;
                     if is_travel { flags |= 1; }
                     if pos_data.is_perimeter { flags |= 2; }
                     if pos_data.is_support { flags |= 4; }
-                    let is_retraction = pos_data.length <= 1e-6 && pos_data.extruding;
+                    let is_retraction = (pos_data.length as f64) <= 1e-6 && pos_data.extruding;
                     if is_retraction { flags |= 8; }
 
                     let tool_index = pos_data.tool.min(1023) as f32; // 10 bits for tool index
@@ -510,6 +515,106 @@ impl GCodeProcessor {
         }
     }
 
+    /// Generate a chunk of render buffers starting from a given sorted index.
+    /// This avoids allocating all buffers for very large models at once.
+    #[wasm_bindgen]
+    pub fn generate_render_buffers_range(
+        &self,
+        nozzle_size: f32,
+        padding: f32,
+        start_index: usize,
+        max_segments: usize,
+        progress_callback: Option<ProgressCallback>
+    ) -> RenderBuffers {
+        let total_positions = self.sorted_positions.len();
+        if start_index >= total_positions { 
+            return RenderBuffers {
+                matrix_data: Vec::new(),
+                color_data: Vec::new(),
+                pick_data: Vec::new(),
+                file_position_data: Vec::new(),
+                file_end_position_data: Vec::new(),
+                tool_data: Vec::new(),
+                feed_rate_data: Vec::new(),
+                is_perimeter_data: Vec::new(),
+                segment_count: 0,
+            };
+        }
+
+        let end_index = (start_index + max_segments).min(total_positions);
+        let chunk_len = end_index - start_index;
+
+        let mut matrix_data = Vec::with_capacity(chunk_len * 16);
+        let mut color_data = Vec::with_capacity(chunk_len * 4);
+        let mut pick_data = Vec::with_capacity(chunk_len * 3);
+        let mut file_position_data = Vec::with_capacity(chunk_len);
+        let mut file_end_position_data = Vec::with_capacity(chunk_len);
+        let mut tool_data = Vec::with_capacity(chunk_len);
+        let mut feed_rate_data = Vec::with_capacity(chunk_len);
+        let mut is_perimeter_data = Vec::with_capacity(chunk_len);
+
+        let mut segment_count = 0u32;
+        let mut processed_positions = 0usize;
+        let mut last_report_time_ms = js_sys::Date::now();
+
+        for idx in start_index..end_index {
+            let position = self.sorted_positions[idx];
+            if let Some(pos_data) = self.positions.get(idx) {
+                let (matrix, color) = self.calculate_render_matrix(pos_data, nozzle_size, padding);
+                matrix_data.extend_from_slice(&matrix);
+                color_data.extend_from_slice(&color);
+
+                let color_id = Self::num_to_color(pos_data.line_number);
+                pick_data.extend_from_slice(&color_id);
+                file_position_data.push(position as f32);
+                file_end_position_data.push(pos_data.file_end_position as f32);
+
+                // Pack tool index + flags into a single float (as before)
+                // Bits: 0=travel, 1=perimeter, 2=support, 3=retraction
+                let mut flags: u32 = 0;
+                let is_travel = !pos_data.extruding;
+                if is_travel { flags |= 1; }
+                if pos_data.is_perimeter { flags |= 2; }
+                if pos_data.is_support { flags |= 4; }
+                let is_retraction = (pos_data.length as f64) <= 1e-6 && pos_data.extruding;
+                if is_retraction { flags |= 8; }
+
+                let tool_index = pos_data.tool.min(1023) as f32;
+                let packed = tool_index + (flags as f32) * 1024.0;
+                tool_data.push(packed);
+                feed_rate_data.push(pos_data.feed_rate as f32);
+                is_perimeter_data.push(if pos_data.is_perimeter { 1.0 } else { 0.0 });
+
+                segment_count += 1;
+            }
+
+            processed_positions += 1;
+            let should_check = processed_positions % 1000 == 0 || processed_positions % 10000 == 0;
+            if should_check {
+                let now_ms = js_sys::Date::now();
+                let local_prog = processed_positions as f64 / chunk_len as f64;
+                if now_ms - last_report_time_ms >= 75.0 {
+                    if let Some(ref callback) = progress_callback {
+                        callback.call(local_prog.min(1.0), "Building render objects (chunk)");
+                    }
+                    last_report_time_ms = now_ms;
+                }
+            }
+        }
+
+        RenderBuffers {
+            matrix_data,
+            color_data,
+            pick_data,
+            file_position_data,
+            file_end_position_data,
+            tool_data,
+            feed_rate_data,
+            is_perimeter_data,
+            segment_count,
+        }
+    }
+
     // Helper function to calculate render matrix (equivalent to Move.renderLine())
     fn calculate_render_matrix(&self, pos_data: &PositionData, nozzle_size: f32, padding: f32) -> ([f32; 16], [f32; 4]) {
         // Replicate TypeScript Move.renderLine() logic exactly
@@ -523,9 +628,9 @@ impl GCodeProcessor {
         let mid_z = (pos_data.start_z + pos_data.z) / 2.0;
         
         // Calculate direction vector (matches TypeScript: Move.subtract(this.end, this.start))
-        let v_x = pos_data.x - pos_data.start_x;
-        let v_y = pos_data.y - pos_data.start_y;
-        let v_z = pos_data.z - pos_data.start_z;
+        let v_x = (pos_data.x - pos_data.start_x) as f64;
+        let v_y = (pos_data.y - pos_data.start_y) as f64;
+        let v_z = (pos_data.z - pos_data.start_z) as f64;
         
         // Calculate magnitude r (matches TypeScript: Math.sqrt(Math.pow(v[0], 2) + Math.pow(v[1], 2) + Math.pow(v[2], 2)))
         let r = (v_x * v_x + v_y * v_y + v_z * v_z).sqrt();
@@ -597,7 +702,7 @@ impl GCodeProcessor {
         
         // Scale factors (matches TypeScript: new Vector3(length, this.layerHeight, nozzleSize))
         let scale_x = length as f64;
-        let scale_y = pos_data.layer_height;
+        let scale_y = pos_data.layer_height as f64;
         let scale_z = nozzle_size as f64;
         
         // Compose transformation matrix exactly like Babylon.js Matrix.Compose(scale, rotation, translation)

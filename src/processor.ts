@@ -26,6 +26,8 @@ export default class Processor {
    breakPoint = 100000
    gpuPicker: GPUPicker
    worker: Worker
+   geometryWorker: Worker | null = null
+   useGeometryTransferWorker: boolean = true
    //modelMaterial: ModelMaterial[]
    modelMaterial: LineShaderMaterial[]
    filePosition: number = 0
@@ -64,9 +66,19 @@ export default class Processor {
       renderSegmentsGenerated?: number
    } = { method: 'none', wasmEnabled: false }
 
+   // Heuristic memory guard for WASM buffer generation (bytes)
+   private MAX_WASM_BUFFER_BYTES = 256 * 1024 * 1024 // 256MB
+
    constructor() {
       this.lodManager = new LODManager()
       this.objectPools = GCodePools.getInstance()
+      try {
+         // Nested worker to offload buffer building and return transferables
+         this.geometryWorker = new Worker(new URL('./geometry.worker.ts', import.meta.url), { type: 'module' })
+      } catch (e) {
+         this.geometryWorker = null
+         this.useGeometryTransferWorker = false
+      }
    }
 
    async enableWasmProcessing(): Promise<void> {
@@ -130,6 +142,10 @@ export default class Processor {
          this.wasmProcessor.dispose()
          this.wasmProcessor = null
       }
+      if (this.geometryWorker) {
+         this.geometryWorker.terminate()
+         this.geometryWorker = null
+      }
    }
 
    async loadFile(file) {
@@ -192,6 +208,8 @@ export default class Processor {
       if (wasmBuffers && wasmBuffers.segmentCount > 0) {
          console.log(`🚀 Using WASM render buffers directly for ${wasmBuffers.segmentCount} segments`)
          await this.buildMeshesFromWasmBuffers(wasmBuffers)
+      } else if (this.usedChunkedWasmRendering) {
+         console.log('🚚 Chunked WASM rendering already built meshes')
       } else {
          console.log('📦 Using traditional progressive rendering')
          await this.testRenderSceneProgressive()
@@ -434,6 +452,31 @@ export default class Processor {
          console.log('🚀 Generating render buffers with WASM...')
 
          try {
+            // Heuristic: skip WASM buffer generation for very large models
+            // Approx bytes per segment: 28 float32s ~= 112 bytes
+            const approxBytes = (this.processingStats.movesFound || 0) * 112
+            if (approxBytes > this.MAX_WASM_BUFFER_BYTES) {
+               console.warn(
+                  `⏭️ Skipping monolithic WASM buffers (est ${(
+                     approxBytes /
+                     (1024 * 1024)
+                  ).toFixed(1)}MB > ${(this.MAX_WASM_BUFFER_BYTES / (1024 * 1024)).toFixed(0)}MB). Using chunked WASM.`,
+               )
+               // Use chunked WASM -> JS streaming of buffers
+               await this.buildMeshesFromWasmChunks()
+               this.usedChunkedWasmRendering = true
+
+               // Build TypeScript compatibility objects only
+               console.log('🔧 Building TypeScript G-code objects for compatibility...')
+               const compatStartTime = performance.now()
+               this.processorProperties = new ProcessorProperties()
+               this.processorProperties.slicer = slicerFactory(file)
+               await this.loadFileStreamedWithPositions(file)
+               const compatTime = performance.now() - compatStartTime
+               console.log(`🔧 TypeScript compatibility objects created in ${compatTime.toFixed(2)}ms`)
+               return
+            }
+
             const wasmRenderBuffers = this.wasmProcessor!.generateRenderBuffers(
                0.4,
                0,
@@ -467,18 +510,23 @@ export default class Processor {
             const compatTime = performance.now() - compatStartTime
             console.log(`🔧 TypeScript compatibility objects created in ${compatTime.toFixed(2)}ms`)
          } catch (error) {
-            console.error('❌ WASM render buffer generation failed:', error)
-            console.warn('🔄 Using TypeScript fallback for rendering...')
-            // Fallback to TypeScript rendering
-            const tsStartTime = performance.now()
-            console.log('🔧 Building TypeScript G-code objects for rendering...')
+            console.warn('⚠️ WASM render buffer generation unavailable; attempting chunked WASM:', error?.message || error)
+            try {
+               await this.buildMeshesFromWasmChunks()
+               this.usedChunkedWasmRendering = true
+            } catch (e) {
+               console.warn('🔄 Chunked WASM path failed; using TypeScript builder...', e)
+               // Fallback to TypeScript rendering
+               const tsStartTime = performance.now()
+               console.log('🔧 Building TypeScript G-code objects for rendering...')
 
-            // Reset processor state for TypeScript parsing phase
-            this.processorProperties = new ProcessorProperties()
-            this.processorProperties.slicer = slicerFactory(file)
+               // Reset processor state for TypeScript parsing phase
+               this.processorProperties = new ProcessorProperties()
+               this.processorProperties.slicer = slicerFactory(file)
 
-            await this.loadFileStreamedWithPositions(file)
-            this.processingStats.typescriptTime = performance.now() - tsStartTime
+               await this.loadFileStreamedWithPositions(file)
+               this.processingStats.typescriptTime = performance.now() - tsStartTime
+            }
          }
 
          // Report final performance comparison
@@ -681,7 +729,7 @@ export default class Processor {
             const lodLevel = this.lodManager.getLODBySegmentCount(segmentCount)
 
             let sl = renderlines.slice(lastRenderedIdx)
-            let rl = this.testBuildMeshWithLOD(sl, segmentCount, alphaIndex, lodLevel)
+            let rl = await this.testBuildMeshWithLODAsync(sl, segmentCount, alphaIndex, lodLevel)
             this.meshes.push(...rl)
             this.gpuPicker.addToRenderList(rl[0]) //use the box mesh for all picking
             lastRenderedIdx = renderlines.length
@@ -704,7 +752,7 @@ export default class Processor {
          let sl = renderlines.slice(lastRenderedIdx)
          // Use LOD for final chunk as well
          const lodLevel = this.lodManager.getLODBySegmentCount(segmentCount)
-         let rl = this.testBuildMeshWithLOD(sl, segmentCount, alphaIndex, lodLevel)
+         let rl = await this.testBuildMeshWithLODAsync(sl, segmentCount, alphaIndex, lodLevel)
          this.meshes.push(...rl)
          this.gpuPicker.addToRenderList(rl[0]) //use the box mesh for all picking
       }
@@ -724,6 +772,8 @@ export default class Processor {
    // 0 = Box, 1 = Cylinder, 2 = Line
    setMeshMode(mode) {
       mode = mode > 2 ? 0 : mode
+      // Map cylinder to box to reduce mesh count
+      if (mode === 1) mode = 0
 
       // If we have WASM buffers, rebuild a single active mesh for this mode
       const wasmBuffers = (this as any).wasmRenderBuffers
@@ -769,12 +819,12 @@ export default class Processor {
                mesh.material = mm.material
             }
             break
-         case 1: // cylinder
-            mesh = MeshBuilder.CreateCylinder('cyl', { height: 1, diameter: 1 }, this.scene)
-            mesh.locallyTranslate(new Vector3(0, 0, 0))
-            mesh.rotate(new Vector3(0, 0, 1), Math.PI / 2, Space.WORLD)
+         case 1: // cylinder -> use box instead to avoid extra mesh
+            mesh = MeshBuilder.CreateBox('box', { width: 1, height: 1, depth: 1 }, this.scene)
+            mesh.position = new Vector3(0, 0, 0)
+            mesh.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
             mesh.bakeCurrentTransformIntoVertices()
-            ;(mesh as any).metadata = { meshType: 1 }
+            ;(mesh as any).metadata = { meshType: 0 }
             mesh.material = this.addNewMaterial().material
             break
          case 0: // box
@@ -815,12 +865,8 @@ export default class Processor {
       ;(box as any).metadata = { meshType: 0 }
       ;(box as any).metadata = { meshType: 0 }
 
-      let cyl = MeshBuilder.CreateCylinder('cyl', { height: 1, diameter: 1 }, this.scene)
-      cyl.locallyTranslate(new Vector3(0, 0, 0))
-      cyl.rotate(new Vector3(0, 0, 1), Math.PI / 2, Space.WORLD)
-      cyl.bakeCurrentTransformIntoVertices()
-      ;(cyl as any).metadata = { meshType: 1 }
-      ;(cyl as any).metadata = { meshType: 1 }
+      // Reduce mesh count: use box in place of cylinder
+      let cyl = box as Mesh
 
       let line = MeshBuilder.CreateLines(
          'line',
@@ -839,8 +885,7 @@ export default class Processor {
       box.material = this.addNewMaterial().material // lineMesh = false by default
       box.alphaIndex = alphaIndex
 
-      cyl.material = this.addNewMaterial().material // lineMesh = false by default
-      cyl.alphaIndex = alphaIndex
+      // Skip separate cylinder material; cyl uses the box
 
       let mm = this.addNewMaterial()
       line.alphaIndex = alphaIndex
@@ -902,6 +947,153 @@ export default class Processor {
       return [box, cyl, line]
    }
 
+   async buildMediumDetailMeshViaWorker(renderlines, segCount, alphaIndex): Promise<Mesh[]> {
+      // If WASM buffers are present, use existing fast path
+      const wasmBuffers = (this as any).wasmRenderBuffers
+      if (wasmBuffers && wasmBuffers.segmentCount > 0) {
+         return this.buildMediumDetailMesh(renderlines, segCount, alphaIndex)
+      }
+
+      if (!this.geometryWorker || !this.useGeometryTransferWorker) {
+         return this.buildMediumDetailMesh(renderlines, segCount, alphaIndex)
+      }
+
+      // Create base meshes and materials
+      let box = MeshBuilder.CreateBox('box', { width: 1, height: 1, depth: 1 }, this.scene)
+      box.position = new Vector3(0, 0, 0)
+      box.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
+      box.bakeCurrentTransformIntoVertices()
+      ;(box as any).metadata = { meshType: 0 }
+
+      // Reduce mesh count: use box in place of cylinder
+      let cyl = box as Mesh
+
+      let line = MeshBuilder.CreateLines(
+         'line',
+         { points: [new Vector3(-0.5, 0, 0), new Vector3(0.5, 0, 0)] },
+         this.scene,
+      )
+      ;(line as any).metadata = { meshType: 2 }
+
+      // Assign materials and apply tool colors
+      const matBox = this.addNewMaterial()
+      box.material = matBox.material
+      matBox.updateToolColors(this.processorProperties.buildToolFloat32Array())
+      box.alphaIndex = alphaIndex
+      // Skip separate cylinder material; cyl uses the box
+      const mm = this.addNewMaterial()
+      line.alphaIndex = alphaIndex
+      line.material = mm.material
+      mm.setLineMesh(true)
+      mm.updateToolColors(this.processorProperties.buildToolFloat32Array())
+
+      // Build a compact set of segments for worker to process
+      const segments: any[] = []
+      for (let i = 0; i < renderlines.length; i++) {
+         const l = renderlines[i] as Base
+         if (l.lineType === 'L' || l.lineType === 'T') {
+            const m = l as Move
+            segments.push({
+               start: [m.start[0], m.start[1], m.start[2]],
+               end: [m.end[0], m.end[1], m.end[2]],
+               color: [m.color[0], m.color[1], m.color[2], m.color[3]],
+               lineNumber: m.lineNumber,
+               filePosition: m.filePosition,
+               fileEndPosition: m.filePosition + m.line.length,
+               tool: m.tool,
+               feedRate: m.feedRate,
+               isPerimeter: !!m.isPerimeter,
+               layerHeight: m.layerHeight,
+            })
+         } else if (l.lineType === 'A') {
+            const arc = l as ArcMove
+            // Use arc metadata for pick color and attributes, segment geometry for start/end
+            for (let s = 0; s < arc.segments.length; s++) {
+               const seg = arc.segments[s] as Move
+               segments.push({
+                  start: [seg.start[0], seg.start[1], seg.start[2]],
+                  end: [seg.end[0], seg.end[1], seg.end[2]],
+                  color: [arc.color[0], arc.color[1], arc.color[2], arc.color[3]],
+                  lineNumber: arc.lineNumber,
+                  filePosition: arc.filePosition,
+                  fileEndPosition: arc.filePosition + arc.line.length,
+                  tool: arc.tool,
+                  feedRate: arc.feedRate,
+                  isPerimeter: !!arc.isPerimeter,
+                  layerHeight: arc.layerHeight,
+               })
+            }
+         }
+      }
+
+      const buffers = await new Promise<any>((resolve, reject) => {
+         const onMessage = (e: MessageEvent) => {
+            if (!e.data || e.data.type !== 'buffers') return
+            this.geometryWorker!.removeEventListener('message', onMessage)
+            resolve(e.data)
+         }
+         const onError = (err: any) => {
+            this.geometryWorker!.removeEventListener('message', onMessage)
+            reject(err)
+         }
+         this.geometryWorker!.addEventListener('message', onMessage)
+         this.geometryWorker!.addEventListener('error', onError, { once: true })
+         this.geometryWorker!.postMessage({ type: 'build', nozzleSize: 0.4, segments })
+      })
+
+      // Apply buffers to all meshes (buffers were transferred, no copy)
+      this.copyBuffersToMesh(
+         box,
+         new Float32Array(buffers.matrixData),
+         new Float32Array(buffers.colorData),
+         new Float32Array(buffers.pickData),
+         new Float32Array(buffers.filePositionData),
+         new Float32Array(buffers.fileEndPositionData),
+         new Float32Array(buffers.toolData),
+         new Float32Array(buffers.feedRate),
+         new Float32Array(buffers.isPerimeterData),
+      )
+      this.copyBuffersToMesh(
+         cyl,
+         new Float32Array(buffers.matrixData),
+         new Float32Array(buffers.colorData),
+         new Float32Array(buffers.pickData),
+         new Float32Array(buffers.filePositionData),
+         new Float32Array(buffers.fileEndPositionData),
+         new Float32Array(buffers.toolData),
+         new Float32Array(buffers.feedRate),
+         new Float32Array(buffers.isPerimeterData),
+      )
+      this.copyBuffersToMesh(
+         line,
+         new Float32Array(buffers.matrixData),
+         new Float32Array(buffers.colorData),
+         new Float32Array(buffers.pickData),
+         new Float32Array(buffers.filePositionData),
+         new Float32Array(buffers.fileEndPositionData),
+         new Float32Array(buffers.toolData),
+         new Float32Array(buffers.feedRate),
+         new Float32Array(buffers.isPerimeterData),
+      )
+
+      // Initially show only the line mesh
+      box.setEnabled(false)
+      cyl.setEnabled(false)
+      line.setEnabled(false)
+
+      // Replace heavy Move objects with Move_Thin for this chunk to reduce memory
+      for (let i = 0; i < renderlines.length; i++) {
+         const l = renderlines[i] as Base
+         if (l.lineType === 'L' || l.lineType === 'T') {
+            this.gCodeLines[l.lineNumber - 1] = new Move_Thin(this.processorProperties, l as Move, cyl, i)
+         } else if (l.lineType === 'A') {
+            this.gCodeLines[l.lineNumber - 1] = new Move_Thin(this.processorProperties, l as ArcMove, cyl, i)
+         }
+      }
+
+      return [box, cyl, line]
+   }
+
    buildMediumDetailMesh(renderlines, segCount, alphaIndex): Mesh[] {
       // Create all three mesh types for proper material assignment
       let box = MeshBuilder.CreateBox('box', { width: 1, height: 1, depth: 1 }, this.scene)
@@ -910,11 +1102,8 @@ export default class Processor {
       box.bakeCurrentTransformIntoVertices()
       ;(box as any).metadata = { meshType: 0 }
 
-      let cyl = MeshBuilder.CreateCylinder('cyl', { height: 1, diameter: 1 }, this.scene)
-      cyl.locallyTranslate(new Vector3(0, 0, 0))
-      cyl.rotate(new Vector3(0, 0, 1), Math.PI / 2, Space.WORLD)
-      cyl.bakeCurrentTransformIntoVertices()
-      ;(cyl as any).metadata = { meshType: 1 }
+      // Reduce mesh count: use box in place of cylinder
+      let cyl = box as Mesh
 
       let line = MeshBuilder.CreateLines(
          'line',
@@ -938,8 +1127,7 @@ export default class Processor {
       box.material = this.addNewMaterial().material // lineMesh = false by default
       box.alphaIndex = alphaIndex
 
-      cyl.material = this.addNewMaterial().material // lineMesh = false by default
-      cyl.alphaIndex = alphaIndex
+      // Skip separate cylinder material; cyl uses the box
 
       let mm = this.addNewMaterial()
       line.alphaIndex = alphaIndex
@@ -1009,10 +1197,8 @@ export default class Processor {
       box.bakeCurrentTransformIntoVertices()
       //box.convertToUnIndexedMesh()
 
-      let cyl = MeshBuilder.CreateCylinder('cyl', { height: 1, diameter: 1 }, this.scene)
-      cyl.locallyTranslate(new Vector3(0, 0, 0))
-      cyl.rotate(new Vector3(0, 0, 1), Math.PI / 2, Space.WORLD)
-      cyl.bakeCurrentTransformIntoVertices()
+      // Reduce mesh count: use box in place of cylinder
+      let cyl = box as Mesh
 
       let line = MeshBuilder.CreateLines(
          'line',
@@ -1035,8 +1221,7 @@ export default class Processor {
       box.alphaIndex = alphaIndex
       //box.material.freeze()
 
-      cyl.material = this.addNewMaterial().material
-      cyl.alphaIndex = alphaIndex
+      // Skip separate cylinder material; cyl uses the box
       //cyl.material.freeze()
 
       let mm = this.addNewMaterial()
@@ -1249,11 +1434,8 @@ export default class Processor {
       box.rotate(Axis.X, Math.PI / 4, Space.LOCAL)
       box.bakeCurrentTransformIntoVertices()
 
-      // Create cylinder mesh
-      let cyl = MeshBuilder.CreateCylinder('cyl', { height: 1, diameter: 1 }, this.scene)
-      cyl.locallyTranslate(new Vector3(0, 0, 0))
-      cyl.rotate(new Vector3(0, 0, 1), Math.PI / 2, Space.WORLD)
-      cyl.bakeCurrentTransformIntoVertices()
+      // Reduce mesh count: use box in place of cylinder
+      let cyl = box as Mesh
 
       // Create line mesh
       let line = MeshBuilder.CreateLines(
@@ -1266,16 +1448,18 @@ export default class Processor {
 
       // Assign materials and alpha index
       const alphaIndex = 0
-      box.material = this.addNewMaterial().material
+      const matBox = this.addNewMaterial()
+      box.material = matBox.material
       box.alphaIndex = alphaIndex
+      matBox.updateToolColors(this.processorProperties.buildToolFloat32Array())
 
-      cyl.material = this.addNewMaterial().material
-      cyl.alphaIndex = alphaIndex
+      // Skip separate cylinder material; cyl uses the box
 
       let mm = this.addNewMaterial()
       line.alphaIndex = alphaIndex
       line.material = mm.material
       mm.setLineMesh(true)
+      mm.updateToolColors(this.processorProperties.buildToolFloat32Array())
 
       // Apply WASM buffers directly to all meshes
       this.applyWasmBuffersToMesh(box, wasmBuffers)
@@ -1290,6 +1474,42 @@ export default class Processor {
       return this.createHighDetailMeshFromWasmBuffers(wasmBuffers)
    }
 
+   private async buildMeshesFromWasmChunks() {
+      if (!this.wasmProcessor) return
+      this.meshes = []
+      this.gpuPicker.clearRenderList()
+
+      const startTime = performance.now()
+      const MAX_SEGMENTS_PER_CHUNK = 200000
+      let alphaIndex = 0
+      const total = this.wasmProcessor.getPositionCount()
+
+      await this.wasmProcessor.generateRenderBuffersChunked(
+         0.4,
+         0,
+         MAX_SEGMENTS_PER_CHUNK,
+         (buffers, chunkIndex) => {
+            alphaIndex++
+            const meshes = this.createLineMeshFromWasmBuffers(buffers)
+            meshes.forEach((m) => (m.alphaIndex = alphaIndex))
+            this.meshes.push(...meshes)
+            this.gpuPicker.addToRenderList(meshes[0])
+            const produced = Math.min((chunkIndex + 1) * MAX_SEGMENTS_PER_CHUNK, total)
+            this.worker.postMessage({
+               type: 'progress',
+               progress: produced / total,
+               label: 'Generating model (WASM chunks)'
+            })
+         },
+         (p, label) => {
+            this.worker.postMessage({ type: 'progress', progress: p, label })
+         },
+      )
+
+      const buildTime = performance.now() - startTime
+      console.log(`✅ Built meshes via chunked WASM in ${buildTime.toFixed(1)}ms`)
+   }
+
    private createLineMeshFromWasmBuffers(wasmBuffers: any): Mesh[] {
       // Create all three base meshes so any mesh mode can be enabled later
       let box = MeshBuilder.CreateBox('box', { width: 1, height: 1, depth: 1 }, this.scene)
@@ -1298,11 +1518,8 @@ export default class Processor {
       box.bakeCurrentTransformIntoVertices()
       ;(box as any).metadata = { meshType: 0 }
 
-      let cyl = MeshBuilder.CreateCylinder('cyl', { height: 1, diameter: 1 }, this.scene)
-      cyl.locallyTranslate(new Vector3(0, 0, 0))
-      cyl.rotate(new Vector3(0, 0, 1), Math.PI / 2, Space.WORLD)
-      cyl.bakeCurrentTransformIntoVertices()
-      ;(cyl as any).metadata = { meshType: 1 }
+      // Reduce mesh count: use box in place of cylinder
+      let cyl = box as Mesh
 
       let line = MeshBuilder.CreateLines(
          'line',
@@ -1315,14 +1532,14 @@ export default class Processor {
 
       // Assign materials
       box.material = this.addNewMaterial().material
-      cyl.material = this.addNewMaterial().material
+      // Skip separate cylinder material; cyl uses the box
       let mm = this.addNewMaterial()
       line.material = mm.material
       mm.setLineMesh(true)
 
       // Apply buffers to all meshes
       this.applyWasmBuffersToMesh(box, wasmBuffers)
-      this.applyWasmBuffersToMesh(cyl, wasmBuffers)
+      // No separate cylinder mesh; cyl references the box
       this.applyWasmBuffersToMesh(line, wasmBuffers)
 
       // Default to line visible only; mode switch will toggle
@@ -1331,6 +1548,23 @@ export default class Processor {
       line.setEnabled(true)
 
       return [box, cyl, line]
+   }
+
+   private async testBuildMeshWithLODAsync(
+      renderlines: any[],
+      segCount: number,
+      alphaIndex: number,
+      lodLevel: LODLevel,
+   ): Promise<Mesh[]> {
+      switch (lodLevel) {
+         case LODLevel.LOW:
+            return this.buildLineMeshOnly(renderlines, segCount, alphaIndex)
+         case LODLevel.MEDIUM:
+            return await this.buildMediumDetailMeshViaWorker(renderlines, segCount, alphaIndex)
+         case LODLevel.HIGH:
+         default:
+            return this.testBuildMesh(renderlines, segCount, alphaIndex)
+      }
    }
 
    private applyWasmBuffersToMesh(mesh: Mesh, wasmBuffers: any) {

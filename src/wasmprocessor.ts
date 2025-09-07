@@ -145,17 +145,20 @@ export class WasmProcessor {
         this.pseudoProgress = 0;
 
         const renderBuffers: RenderBuffers = this.processor.generate_render_buffers(nozzleSize, padding, cb as any);
-        
+
+        // Note: The getters on RenderBuffers already copy out of WASM memory
+        // and free the underlying WASM allocation. Avoid wrapping in new
+        // typed arrays again to prevent an extra copy and peak memory spike.
         return {
             segmentCount: renderBuffers.segment_count,
-            matrixData: new Float32Array(renderBuffers.matrix_data),
-            colorData: new Float32Array(renderBuffers.color_data),
-            pickData: new Float32Array(renderBuffers.pick_data),
-            filePositionData: new Float32Array(renderBuffers.file_position_data),
-            fileEndPositionData: new Float32Array(renderBuffers.file_end_position_data),
-            toolData: new Float32Array(renderBuffers.tool_data),
-            feedRateData: new Float32Array(renderBuffers.feed_rate_data),
-            isPerimeterData: new Float32Array(renderBuffers.is_perimeter_data),
+            matrixData: renderBuffers.matrix_data,
+            colorData: renderBuffers.color_data,
+            pickData: renderBuffers.pick_data,
+            filePositionData: renderBuffers.file_position_data,
+            fileEndPositionData: renderBuffers.file_end_position_data,
+            toolData: renderBuffers.tool_data,
+            feedRateData: renderBuffers.feed_rate_data,
+            isPerimeterData: renderBuffers.is_perimeter_data,
         };
     }
 
@@ -165,5 +168,68 @@ export class WasmProcessor {
             this.processor = null;
         }
         this.initialized = false;
+    }
+
+    async generateRenderBuffersChunked(
+        nozzleSize: number,
+        padding: number,
+        maxSegmentsPerChunk: number,
+        onChunk: (buffers: WasmRenderBuffers, chunkIndex: number) => void,
+        progressCallback?: (progress: number, label: string) => void,
+    ): Promise<number> {
+        if (!this.initialized || !this.processor) {
+            throw new Error('WASM processor not initialized');
+        }
+
+        const total = this.getPositionCount()
+        if (total === 0) return 0
+
+        let produced = 0
+        let chunkIndex = 0
+        for (let start = 0; start < total; start += maxSegmentsPerChunk) {
+            const cb = progressCallback
+                ? ((a: any, b?: any) => {
+                      if (typeof a === 'number') {
+                          // Map local chunk progress to global
+                          const local = a
+                          const global = Math.min(1, (start + local * Math.min(maxSegmentsPerChunk, total - start)) / total)
+                          progressCallback(global, typeof b === 'string' ? b : 'Building render objects (chunk)')
+                      } else if (typeof a === 'string') {
+                          progressCallback((start + Math.min(maxSegmentsPerChunk, total - start)) / total, a)
+                      }
+                  })
+                : undefined
+
+            // Call the new chunked API; use any to avoid type conflicts until WASM is rebuilt
+            const rb: any = (this.processor as any).generate_render_buffers_range(
+                nozzleSize,
+                padding,
+                start,
+                Math.min(maxSegmentsPerChunk, total - start),
+                cb,
+            )
+
+            const buffers: WasmRenderBuffers = {
+                segmentCount: rb.segment_count,
+                matrixData: rb.matrix_data,
+                colorData: rb.color_data,
+                pickData: rb.pick_data,
+                filePositionData: rb.file_position_data,
+                fileEndPositionData: rb.file_end_position_data,
+                toolData: rb.tool_data,
+                feedRateData: rb.feed_rate_data,
+                isPerimeterData: rb.is_perimeter_data,
+            }
+
+            if (buffers.segmentCount > 0) {
+                onChunk(buffers, chunkIndex++)
+                produced += buffers.segmentCount
+            }
+            // Let event loop breathe between chunks
+            await Promise.resolve()
+        }
+
+        if (progressCallback) progressCallback(1, 'Render objects complete')
+        return produced
     }
 }

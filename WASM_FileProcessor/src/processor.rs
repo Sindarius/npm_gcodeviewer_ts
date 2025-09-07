@@ -30,12 +30,12 @@ impl FileProcessor {
     }
     
     /// Process G-code file content and return parsed lines and position data
-    /// Returns (gcode_lines, position_tracker)
+    /// Returns (gcode_lines, positions) where positions is Vec<(file_position, PositionData)>
     pub fn process_file_content(
         &mut self,
         file_content: &str,
         progress_callback: Option<ProgressCallback>,
-    ) -> Result<(Vec<GCodeLine>, HashMap<u32, PositionData>), String> {
+    ) -> Result<(Vec<GCodeLine>, Vec<(u32, PositionData)>), String> {
         
         // Reset processor state for new file
         self.properties.reset();
@@ -50,14 +50,23 @@ impl FileProcessor {
         // Estimate processing parameters
         let file_length = file_content.len();
         let estimated_lines = file_length / 40; // Average ~40 chars per line
-        let chunk_size = 10000.min(estimated_lines / 10); // Process in chunks
+        let chunk_size = 100000.min(estimated_lines / 10); // Process in chunks : Changed from 10000
         
         console_log!("Processing {} bytes, estimated {} lines in chunks of {}", 
                     file_length, estimated_lines, chunk_size);
         
-        // Pre-allocate result vectors with estimated capacity
-        let mut gcode_lines = Vec::with_capacity(estimated_lines + estimated_lines / 5); // +20% buffer
-        let mut position_tracker = HashMap::with_capacity(estimated_lines * 7 / 10); // ~70% moves
+        // Heuristic: for very large files, avoid retaining every parsed line to cut memory pressure.
+        // We still track positions for rendering, but skip building the heavy GCodeLine vector.
+        let store_lines = estimated_lines <= 1_000_000; // ~1M lines threshold (~40MB raw text)
+
+        // Result containers
+        let mut gcode_lines = if store_lines {
+            Vec::with_capacity((estimated_lines + estimated_lines / 5).min(2_000_000)) // cap capacity
+        } else {
+            Vec::new()
+        };
+        // Collect positions in order instead of using a HashMap to avoid massive hash table growth in WASM
+        let mut positions: Vec<(u32, PositionData)> = Vec::with_capacity(((estimated_lines * 7) / 10).min(5_000_000));
         
         // Stream through file line by line for optimal memory usage
         let mut file_position = 0u32;
@@ -101,7 +110,7 @@ impl FileProcessor {
                                 move_data.is_support,
                             );
                             
-                            position_tracker.insert(file_position, pos_data);
+                            positions.push((file_position, pos_data));
                         }
                     } else if let Some(arc) = gcode_line.as_arc() {
                         // Tessellate arcs into line segments for rendering when extruding
@@ -161,7 +170,7 @@ impl FileProcessor {
                                         self.properties.current_tool.tool_number as u32,
                                         self.properties.current_is_support,
                                     );
-                                    position_tracker.insert(pos_key, pd);
+                                    positions.push((pos_key, pd));
                                     seg_start = p;
                                     seg_index += 1;
                                 }
@@ -169,12 +178,16 @@ impl FileProcessor {
                         }
                     }
                     
-                    gcode_lines.push(gcode_line);
+                    if store_lines {
+                        gcode_lines.push(gcode_line);
+                    }
                 }
                 Err(error) => {
                     console_log!("Warning: Failed to parse line {}: {} ({})", line_number, error, line);
                     // Create a comment for unparseable lines
-                    gcode_lines.push(GCodeLine::new_comment(file_position, line_number, line.to_string()));
+                    if store_lines {
+                        gcode_lines.push(GCodeLine::new_comment(file_position, line_number, line.to_string()));
+                    }
                 }
             }
             
@@ -204,12 +217,24 @@ impl FileProcessor {
         // Update final statistics
         self.properties.line_count = line_number - 1;
         
-        console_log!("Processing complete: {} lines, {} moves, {} comments", 
-                    gcode_lines.len(), 
-                    position_tracker.len(),
-                    gcode_lines.iter().filter(|l| matches!(l, GCodeLine::Comment(_))).count());
-        
-        Ok((gcode_lines, position_tracker))
+        // Use tracked statistics for robust logging regardless of whether we retained lines
+        let stats = self.get_statistics();
+        let comment_count = if store_lines {
+            gcode_lines
+                .iter()
+                .filter(|l| matches!(l, GCodeLine::Comment(_)))
+                .count()
+        } else {
+            0
+        };
+        console_log!(
+            "Processing complete: {} lines, {} moves, {} comments", 
+            stats.line_count,
+            positions.len(),
+            comment_count
+        );
+
+        Ok((gcode_lines, positions))
     }
     
     /// Get processing statistics
@@ -233,7 +258,7 @@ impl FileProcessor {
         file_content: &str,
         chunk_size: usize,
         progress_callback: Option<ProgressCallback>,
-    ) -> Result<(Vec<GCodeLine>, HashMap<u32, PositionData>), String> {
+    ) -> Result<(Vec<GCodeLine>, Vec<(u32, PositionData)>), String> {
         
         self.properties.reset();
         let slicer = detect_slicer(file_content);
@@ -241,7 +266,7 @@ impl FileProcessor {
         
         let total_length = file_content.len();
         let mut gcode_lines = Vec::new();
-        let mut position_tracker = HashMap::new();
+        let mut positions: Vec<(u32, PositionData)> = Vec::new();
         
         let mut file_position = 0u32;
         let mut line_number = 1u32;
@@ -280,8 +305,7 @@ impl FileProcessor {
                                     move_data.tool as u32,
                                     move_data.is_support,
                                 );
-                                
-                                position_tracker.insert(file_position, pos_data);
+                                positions.push((file_position, pos_data));
                             }
                         }
                         
@@ -309,7 +333,7 @@ impl FileProcessor {
             }
         }
         
-        Ok((gcode_lines, position_tracker))
+        Ok((gcode_lines, positions))
     }
     
     /// Validate file content before processing

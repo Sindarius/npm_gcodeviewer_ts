@@ -72,11 +72,15 @@ export default class ModelMaterial {
                   vDiffColor = baseColor.rgb; 
                break; // use default diffuse color;
                case 1:
-                  if(tool < 255.0) {                
-                     vDiffColor = toolColors[int(tool)].rgb;
-                  }
-                  else{
-                     vDiffColor = vec3(1,0,0); //Travel Color Make Configurable at some point
+                  // Decode packed tool + flags: packed = toolIndex + flags * 1024
+                  float flags = floor(tool / 1024.0);
+                  float fIdx = tool - flags * 1024.0;
+                  int tIdx = int(clamp(fIdx, 0.0, 19.0));
+                  bool isTravel = mod(flags, 2.0) >= 1.0;
+                  if(!isTravel) {
+                     vDiffColor = toolColors[tIdx].rgb;
+                  } else {
+                     vDiffColor = vec3(1,0,0); // Travel color (configurable)
                   }
                break;
                case 2:
@@ -101,7 +105,11 @@ export default class ModelMaterial {
                vDiffColor = mix(vDiffColor, highlight, 0.9);
                focused = 1.;
             }
-            else if (tool >= 254.0)  //Travel
+            else {
+               // Decode flags again to determine travel for alpha handling
+               float flags2 = floor(tool / 1024.0);
+               bool isTravel2 = mod(flags2, 2.0) >= 1.0;
+               if (isTravel2)  // Travel
             {
                if(fShow >= 0.0 && fShow < animationLength / 8.0) 
                {
@@ -112,7 +120,7 @@ export default class ModelMaterial {
                   bDiscard = 1.;
                }
             }
-            else //Extrusion
+            else // Extrusion
             {
                if (fShow >= 0.0  && fShow < animationLength) 
                { 
