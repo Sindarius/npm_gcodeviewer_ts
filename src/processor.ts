@@ -8,7 +8,7 @@ import { Vector3 } from '@babylonjs/core/Maths/math.vector'
 import { Axis, Space } from '@babylonjs/core/Maths/math.axis'
 import '@babylonjs/core/Meshes/thinInstanceMesh'
 import GPUPicker from './gpupicker'
-import { colorToNum, delay, binarySearchClosest } from './util'
+import { delay, binarySearchClosest, decodeLineIndexFromPick } from './util'
 import ModelMaterial from './modelmaterial'
 import { MoveData } from './GCodeLines/move'
 import { slicerFactory } from './GCodeParsers/slicerfactory'
@@ -198,19 +198,21 @@ export default class Processor {
       }
 
       //This is driving picking
-      this.gpuPicker.colorTestCallBack = (colorId) => {
-         let id = colorToNum(colorId) - 1
-         this.focusedColorId = id
-         if (this.gCodeLines[id] && id > 0) {
-            let o = this.gCodeLines[id]
+      this.gpuPicker.colorTestCallBack = (pixels: Uint8Array) => {
+         // Decode 0-based line index from the pick color (RGB encodes 1-based line number)
+         const lineIndex = decodeLineIndexFromPick(pixels)
+         this.focusedColorId = lineIndex
 
+         if (lineIndex >= 0 && lineIndex < this.gCodeLines.length) {
+            const o = this.gCodeLines[lineIndex]
             this.worker.postMessage({
                type: 'currentline',
                line: o.line,
                lineNumber: o.lineNumber,
                filePosition: o.filePosition,
             })
-            this.modelMaterial.forEach((m) => m.setPickColor(colorId))
+            // Forward the raw RGB bytes to materials for highlight comparison
+            this.modelMaterial.forEach((m) => m.setPickColor(pixels as any))
          }
       }
 

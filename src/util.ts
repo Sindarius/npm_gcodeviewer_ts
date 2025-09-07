@@ -11,8 +11,22 @@ export function colorToNum(color: number[]) {
    return Number((color[0] << 16) + (color[1] << 8) + color[2])
 }
 
-export function colorToNumUint8(color: Uint8Array): Number {
+export function colorToNumUint8(color: Uint8Array): number {
+   // Only use the first 3 channels (RGB); ignore alpha
    return (color[0] << 16) + (color[1] << 8) + color[2]
+}
+
+// Decode a line index (0-based) from a pick buffer RGBA pixel
+// Returns -1 if the pixel is empty/invalid
+export function decodeLineIndexFromPick(pixels: Uint8Array): number {
+   if (!pixels || pixels.length < 3) return -1
+   const r = pixels[0]
+   const g = pixels[1]
+   const b = pixels[2]
+   // Background or no hit
+   if (r === 0 && g === 0 && b === 0) return -1
+   const id = (r << 16) | (g << 8) | b
+   return id - 1 // stored color is 1-based line number
 }
 
 export function delay(ms) {
