@@ -37,6 +37,7 @@ self.addEventListener('message', async (message) => {
             defaultView: self.window,
          }
 
+         try {
          self.viewer = new Viewer()
          self.viewer.init_worker(message.data, self)
          self.viewer.initEngine()
@@ -46,6 +47,11 @@ self.addEventListener('message', async (message) => {
             self.postMessage({ type: 'wasmInitialized', success: true })
          } catch (error) {
             self.postMessage({ type: 'wasmInitialized', success: false, error: error?.message || 'WASM init failed' })
+         }
+         } catch (err) {
+            const msg = err?.message || String(err)
+            const stack = err?.stack
+            self.postMessage({ type: 'workerError', message: msg, stack })
          }
 
          break
@@ -165,4 +171,29 @@ self.addEventListener('message', async (message) => {
          })
          break
    }
+})
+
+// Global error diagnostics from worker
+self.addEventListener('error', (e: any) => {
+   try {
+      self.postMessage({
+         type: 'workerError',
+         message: e?.message || 'Worker error',
+         filename: e?.filename,
+         lineno: e?.lineno,
+         colno: e?.colno,
+         stack: e?.error?.stack,
+      })
+   } catch {}
+})
+
+self.addEventListener('unhandledrejection', (e: any) => {
+   try {
+      const reason = e?.reason || {}
+      self.postMessage({
+         type: 'workerError',
+         message: reason?.message || 'Unhandled rejection in worker',
+         stack: reason?.stack,
+      })
+   } catch {}
 })
