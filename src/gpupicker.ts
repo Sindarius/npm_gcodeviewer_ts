@@ -18,9 +18,9 @@ export default class GPUPicker {
    enabled: boolean = true
    throttleMs: number = 50
    private _lastReadTime: number = 0
-   // Optional scissor optimization
-   private _useScissor: boolean = false
-   private _scissorSize: number = 16
+   // Optional scissor optimization - enabled by default for better performance
+   private _useScissor: boolean = true
+   private _scissorSize: number = 32 // Slightly larger for better usability
    private _lastScissorX: number = 0
    private _lastScissorY: number = 0
 
@@ -170,6 +170,42 @@ export default class GPUPicker {
 
    setScissorSize(sizePx: number) {
       this._scissorSize = Math.max(1, sizePx | 0)
+   }
+
+   /**
+    * Configure GPU picker for maximum performance
+    * - Enables scissor test with small area
+    * - Increases throttling
+    */
+   optimizeForPerformance() {
+      this.enableScissor(true)
+      this.setScissorSize(16) // Small scissor area
+      this.setThrottleMs(100) // More aggressive throttling
+      console.log('🎯 GPUPicker optimized for performance: scissor=16px, throttle=100ms')
+   }
+
+   /**
+    * Configure GPU picker for maximum precision  
+    * - Disables scissor test
+    * - Reduces throttling
+    */
+   optimizeForPrecision() {
+      this.enableScissor(false)
+      this.setThrottleMs(16) // ~60fps picking
+      console.log('🎯 GPUPicker optimized for precision: no scissor, throttle=16ms')
+   }
+
+   /**
+    * Get current picker performance info
+    */
+   getPerformanceInfo() {
+      return {
+         scissorEnabled: this._useScissor,
+         scissorSize: this._scissorSize,
+         throttleMs: this.throttleMs,
+         meshCount: this.renderTargetMeshs.length,
+         targetSize: `${this.width}×${this.height}`
+      }
    }
 }
 
