@@ -143,7 +143,7 @@ export default class Viewer {
          this.processor.gpuPicker.enableScissor(true)
          this.processor.gpuPicker.setScissorSize(16)
       }
-      
+
       // Initialize nozzle
       this.processor.initNozzle(0.4)
 
@@ -188,13 +188,13 @@ export default class Viewer {
          }
 
          this.pointLight.position = this.orbitCamera?.position ?? new Vector3(0, 0, 0)
-         
+
          // Update nozzle animations
          const nozzle = this.processor.getNozzle()
          if (nozzle) {
             nozzle.update()
          }
-         
+
          this.scene?.render()
          this.lastFrameUpdate = Date.now()
       })
@@ -209,7 +209,10 @@ export default class Viewer {
                      pos = this.processor.gCodeLines[idx].filePosition
                   } else if ((this.processor as any).lineOffsets && (this.processor as any).lineOffsets.length > idx) {
                      pos = (this.processor as any).lineOffsets[idx]
-                  } else if ((this.processor as any).sortedPositions && (this.processor as any).sortedPositions.length > idx) {
+                  } else if (
+                     (this.processor as any).sortedPositions &&
+                     (this.processor as any).sortedPositions.length > idx
+                  ) {
                      pos = (this.processor as any).sortedPositions[idx]
                   }
                   this.processor.updateFilePosition(pos)

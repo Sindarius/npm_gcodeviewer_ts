@@ -17,6 +17,8 @@ import LODManager, { LODLevel } from './lodmanager'
 import { GCodePools } from './objectpool'
 import Nozzle from './Renderables/nozzle'
 import { WasmProcessor } from './wasmprocessor'
+import { TubeGeometryBuilder } from './tubegeometry'
+import { InterleavedBufferManager, WasmRenderBuffersInterleaved } from './interleavedBufferManager'
 
 export default class Processor {
    gCodeLines: Base[] = []
@@ -35,6 +37,9 @@ export default class Processor {
    focusedColorId = 0
    lastMeshMode = 0
    perimeterOnly = false
+   tubeRenderingEnabled = true
+   interleavedBuffersEnabled = true
+   tubeGeometryType: 'box' | 'cylinder' = 'box' // Default to faster box geometry
    originalFile: string //May or may not keep this. May force front end to reprovide or cache file.
    lodManager: LODManager
    objectPools: GCodePools
@@ -75,6 +80,7 @@ export default class Processor {
    constructor() {
       this.lodManager = new LODManager()
       this.objectPools = GCodePools.getInstance()
+      this.modelMaterial = [] // Initialize materials array
       try {
          // Nested worker to offload buffer building and return transferables
          this.geometryWorker = new Worker(new URL('./geometry.worker.ts', import.meta.url), { type: 'module' })
@@ -796,10 +802,34 @@ export default class Processor {
       })
    }
 
-   // 0 = Box, 1 = Cylinder, 2 = Line
+   // 0 = Box, 1 = Cylinder, 2 = Line, 3 = Tube (shader-based)
    setMeshMode(mode) {
-      mode = mode > 2 ? 0 : mode
-      // Map cylinder to box to reduce mesh count
+      mode = mode > 3 ? 0 : mode
+      
+      // Check if we have tube meshes
+      const hasTubeMeshes = this.meshes.some((m) => m.metadata?.isTubeMesh === true)
+      
+      if (hasTubeMeshes) {
+         // Tube meshes handle all rendering modes via shader - just update materials
+         console.log(`🔧 Tube mesh rendering mode: ${mode}`)
+         this.lastMeshMode = mode
+         if (this.modelMaterial && Array.isArray(this.modelMaterial)) {
+            this.modelMaterial.forEach((m) => {
+               m.refreshMaterialState()
+               // Could set different shader parameters based on mode if needed
+               if (mode === 2) {
+                  // Line mode - thinner tubes
+                  m.setTubeRadius(0.1)
+               } else {
+                  // Box/cylinder modes - normal tubes
+                  m.setTubeRadius(0.2)
+               }
+            })
+         }
+         return
+      }
+      
+      // Map cylinder to box to reduce mesh count for traditional meshes
       if (mode === 1) mode = 0
 
       // If we have WASM buffers, rebuild a single active mesh for this mode
@@ -807,18 +837,28 @@ export default class Processor {
       if (wasmBuffers && wasmBuffers.segmentCount > 0) {
          this.rebuildWasmMeshForMode(mode, wasmBuffers)
          this.lastMeshMode = mode
-         this.modelMaterial.forEach((m) => m.refreshMaterialState())
+         if (this.modelMaterial && Array.isArray(this.modelMaterial)) {
+            this.modelMaterial.forEach((m) => m.refreshMaterialState())
+         }
          return
       }
 
       // Fallback: enable/disable existing meshes (TS/progressive path)
-      this.meshes.forEach((m) => m.setEnabled(false))
       this.meshes.forEach((m) => {
-         const meshType = m.metadata?.meshType ?? (m.name === 'line' ? 2 : m.name === 'cyl' ? 1 : 0)
-         if (meshType === mode) m.setEnabled(true)
+         if (m && m.setEnabled) {
+            m.setEnabled(false)
+         }
+      })
+      this.meshes.forEach((m) => {
+         if (m && m.setEnabled) {
+            const meshType = m.metadata?.meshType ?? (m.name === 'line' ? 2 : m.name === 'cyl' ? 1 : 0)
+            if (meshType === mode) m.setEnabled(true)
+         }
       })
       this.lastMeshMode = mode
-      this.modelMaterial.forEach((m) => m.refreshMaterialState())
+      if (this.modelMaterial && Array.isArray(this.modelMaterial)) {
+         this.modelMaterial.forEach((m) => m.refreshMaterialState())
+      }
    }
 
    private computeLineOffsets(file: string) {
@@ -846,7 +886,16 @@ export default class Processor {
       this.meshes = []
       this.gpuPicker.clearRenderList()
 
-      // Build base mesh per mode and apply buffers
+      // Use tube rendering if enabled (consistent with chunked path)
+      if (this.tubeRenderingEnabled) {
+         console.log(`🚀 Using tube rendering for non-chunked mesh (mode ${mode})`)
+         const tubeMeshes = this.createOptimizedTubeMesh(wasmBuffers)
+         this.meshes.push(...tubeMeshes)
+         this.gpuPicker.addToRenderList(tubeMeshes[0])
+         return
+      }
+
+      // Build base mesh per mode and apply buffers (traditional approach)
       let mesh: Mesh
       switch (mode) {
          case 2: // line
@@ -1596,6 +1645,11 @@ export default class Processor {
    }
 
    private createLineMeshFromWasmBuffers(wasmBuffers: any): Mesh[] {
+      if (this.tubeRenderingEnabled) {
+         // Use single optimized tube mesh for all rendering modes
+         return this.createOptimizedTubeMesh(wasmBuffers)
+      }
+      
       // Create all three base meshes so any mesh mode can be enabled later
       let box = MeshBuilder.CreateBox('box', { width: 1, height: 1, depth: 1 }, this.scene)
       box.position = new Vector3(0, 0, 0)
@@ -1636,6 +1690,54 @@ export default class Processor {
       line.setEnabled(true)
 
       return [box, cyl, line]
+   }
+
+   private createOptimizedTubeMesh(wasmBuffers: any): Mesh[] {
+      const segmentCount = wasmBuffers.segmentCount
+      const geometryType = this.tubeGeometryType
+      console.log(`🚀 Creating optimized tube mesh (${geometryType}) for ${segmentCount} segments`)
+      
+      // Create geometry based on selected type
+      const tubeMesh = geometryType === 'box' 
+         ? TubeGeometryBuilder.CreateTubeBoxGeometry('tubeMesh', this.scene)
+         : TubeGeometryBuilder.CreateTubeGeometry('tubeMesh', 8, this.scene)
+      
+      tubeMesh.metadata = { 
+         meshType: 3, 
+         isTubeMesh: true, 
+         geometryType: geometryType 
+      }
+      
+      // Apply material with tube rendering enabled
+      const tubeMaterial = this.addNewMaterial()
+      tubeMesh.material = tubeMaterial.material
+      tubeMaterial.updateToolColors(this.processorProperties.buildToolFloat32Array())
+      
+      // Enable tube mode on the material
+      tubeMaterial.setTubeMode(true, 0.2, 8) // radius=0.2, sides=8
+      
+      // Apply WASM buffers with interleaved optimization if enabled
+      if (this.interleavedBuffersEnabled) {
+         console.log(`📦 Using interleaved buffer layout for ${segmentCount} segments`)
+         this.applyWasmBuffersInterleavedToMesh(tubeMesh, wasmBuffers)
+      } else {
+         this.applyWasmBuffersToMesh(tubeMesh, wasmBuffers)
+      }
+      
+      // Mesh is always enabled (single mesh handles all render modes via shader)
+      tubeMesh.setEnabled(true)
+      
+      const bufferType = this.interleavedBuffersEnabled ? 'interleaved' : 'separate'
+      const vertexCount = geometryType === 'box' ? 8 : 16
+      const triangleCount = geometryType === 'box' ? 8 : 16 // 8 triangles for box, 16+ for cylinder
+      
+      console.log(`✅ Optimized tube mesh created:`)
+      console.log(`   📊 ${segmentCount} segments × ${vertexCount} vertices = ${segmentCount * vertexCount} total vertices`)
+      console.log(`   🔺 ${segmentCount * triangleCount} triangles (${geometryType} geometry)`)
+      console.log(`   📦 ${bufferType} buffers, single draw call`)
+      
+      // Return single mesh (major performance improvement!)
+      return [tubeMesh]
    }
 
    private async testBuildMeshWithLODAsync(
@@ -1681,6 +1783,24 @@ export default class Processor {
       mesh.thinInstanceRefreshBoundingInfo(false)
 
       // All buffers applied
+   }
+
+   private applyWasmBuffersInterleavedToMesh(mesh: Mesh, wasmBuffers: any) {
+      // Apply WASM-generated buffer data using interleaved layout for optimal GPU performance
+      const segmentCount = wasmBuffers.segmentCount
+      
+      console.log(`📦 Converting ${segmentCount} segments to interleaved buffer format`)
+      
+      // Convert separate WASM buffers to interleaved format
+      const interleavedBuffers = InterleavedBufferManager.convertToInterleaved(wasmBuffers)
+      
+      // Apply the interleaved buffer to the mesh using legacy API for compatibility
+      InterleavedBufferManager.applyInterleavedBufferLegacy(mesh, interleavedBuffers)
+      
+      // Store buffer reference for cleanup if needed
+      ;(mesh as any).interleavedBuffer = interleavedBuffers.interleavedData
+      
+      console.log(`✅ Applied interleaved buffer: ${interleavedBuffers.interleavedData.length} floats total`)
    }
 
    private processRenderLines(
@@ -1886,8 +2006,69 @@ export default class Processor {
       }
    }
 
+   setTubeRenderingMode(enabled: boolean, radius: number = 0.2) {
+      this.tubeRenderingEnabled = enabled
+      console.log(`🔧 Tube rendering ${enabled ? 'enabled' : 'disabled'}`)
+      
+      // Update all existing materials (only if they exist)
+      if (this.modelMaterial && Array.isArray(this.modelMaterial)) {
+         this.modelMaterial.forEach((m) => m.setTubeMode(enabled, radius, 8))
+      }
+      
+      // If we have meshes, we may need to rebuild them for optimal performance
+      if (enabled && this.meshes && this.meshes.length > 3) {
+         console.log('💡 Consider rebuilding meshes for optimal tube rendering performance')
+      }
+   }
+
+   isTubeRenderingEnabled(): boolean {
+      return this.tubeRenderingEnabled
+   }
+
+   getRenderingInfo(): { 
+      mode: string, 
+      meshCount: number, 
+      hasTubeMeshes: boolean,
+      tubeEnabled: boolean,
+      geometryType: string,
+      interleavedBuffers: boolean
+   } {
+      const hasTubeMeshes = this.meshes.some((m) => m && m.metadata?.isTubeMesh === true)
+      const geometryComplexity = this.tubeGeometryType === 'box' ? 'Box (Fast)' : 'Cylinder (Quality)'
+      
+      return {
+         mode: this.tubeRenderingEnabled ? 'Tube Rendering' : 'Traditional Rendering',
+         meshCount: this.meshes.length,
+         hasTubeMeshes,
+         tubeEnabled: this.tubeRenderingEnabled,
+         geometryType: geometryComplexity,
+         interleavedBuffers: this.interleavedBuffersEnabled
+      }
+   }
+
+   setInterleavedBuffersMode(enabled: boolean): void {
+      this.interleavedBuffersEnabled = enabled
+      console.log(`${enabled ? '📦 Enabled' : '📋 Disabled'} interleaved buffer optimization`)
+   }
+
+   isInterleavedBuffersEnabled(): boolean {
+      return this.interleavedBuffersEnabled
+   }
+
+   setTubeGeometryType(type: 'box' | 'cylinder'): void {
+      this.tubeGeometryType = type
+      const complexity = type === 'box' ? 'Low (8 vertices)' : 'High (16+ vertices)'
+      console.log(`🔧 Tube geometry set to: ${type} - ${complexity}`)
+   }
+
+   getTubeGeometryType(): 'box' | 'cylinder' {
+      return this.tubeGeometryType
+   }
+
    showSupports(show) {
-      this.modelMaterial.forEach((m) => m.showSupports(show))
+      if (this.modelMaterial && Array.isArray(this.modelMaterial)) {
+         this.modelMaterial.forEach((m) => m.showSupports(show))
+      }
    }
 
    // Animation control methods

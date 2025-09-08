@@ -66,6 +66,9 @@ export class GCodePools {
    feedRatePool: ObjectPool<Float32Array>
    perimeterPool: ObjectPool<Float32Array>
 
+   // Interleaved buffer pool for memory optimization
+   interleavedPool: ObjectPool<Float32Array>
+
    // Vector pools  
    vector3Pool: ObjectPool<number[]>
    
@@ -116,6 +119,12 @@ export class GCodePools {
          50,
       )
 
+      // Interleaved buffer pool - 28 floats per instance, default 10k segments
+      this.interleavedPool = new ObjectPool(
+         () => new Float32Array(28 * 10000),
+         (arr) => arr.fill(0),
+         20, // Keep fewer large interleaved buffers
+      )
 
       // Vector3 pool for frequently created coordinate arrays
       this.vector3Pool = new ObjectPool(
@@ -276,6 +285,28 @@ export class GCodePools {
    }
 
    /**
+    * Get a pooled interleaved buffer for the given segment count
+    */
+   getInterleavedBuffer(segmentCount: number): Float32Array {
+      const required = 28 * segmentCount // 28 floats per instance
+      
+      let buffer = this.interleavedPool.acquire()
+      if (buffer.length < required) {
+         this.interleavedPool.release(buffer)
+         buffer = new Float32Array(required)
+      }
+      
+      return buffer
+   }
+
+   /**
+    * Release an interleaved buffer back to the pool
+    */
+   releaseInterleavedBuffer(buffer: Float32Array): void {
+      this.interleavedPool.release(buffer)
+   }
+
+   /**
     * Clear all pools
     */
    clearAll(): void {
@@ -286,6 +317,7 @@ export class GCodePools {
       this.toolPool.clear()
       this.feedRatePool.clear()
       this.perimeterPool.clear()
+      this.interleavedPool.clear()
       this.vector3Pool.clear()
    }
 }

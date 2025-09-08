@@ -45,6 +45,9 @@ export default class LineShaderMaterial {
    uniform bool alphaMode;
    uniform bool lineMesh;
    uniform bool perimeterOnly;
+   uniform bool tubeMode;
+   uniform float globalTubeRadius;
+   uniform int tubeSides;
 
    varying vec3 eye_normal;
    flat out vec3 vDiffColor;
@@ -153,11 +156,64 @@ export default class LineShaderMaterial {
             }
          }
 
-         // Final position
-         gl_Position = viewProjection * finalWorld * vec4(position, 1.0);
-         // Proper normal transform in world space using instance matrix
-         mat3 normalMat = transpose(inverse(mat3(finalWorld)));
-         eye_normal = normalize(normalMat * normal);
+         // Tube expansion for 3D appearance from 2D lines
+         vec3 finalPosition = position;
+         vec3 finalNormal = normal;
+         
+         if (tubeMode && !lineMesh) {
+            // Extract segment information from the transformation matrix
+            // The matrix encodes: scale(length, layerHeight, nozzleSize), rotation, translation(midpoint)
+            
+            // Extract segment length from X scale
+            float segmentLength = length(finalWorld[0].xyz);
+            
+            // Extract segment center position (translation)
+            vec3 segmentCenter = finalWorld[3].xyz;
+            
+            // Use the rotation matrix to get the local coordinate system
+            // The matrix rotation defines how the unit cylinder should be oriented
+            vec3 localX = normalize(finalWorld[0].xyz / segmentLength); // Segment direction 
+            vec3 localY = normalize(finalWorld[1].xyz);                 // Up vector
+            vec3 localZ = normalize(finalWorld[2].xyz);                 // Right vector for cross-section
+            
+            // For a unit cylinder geometry, position.z goes from -0.5 to 0.5 along segment
+            float t = position.z + 0.5; // Map from [-0.5, 0.5] to [0, 1] along segment
+            
+            // Calculate radius based on segment type
+            float radius = globalTubeRadius;
+            if (flagTravel) {
+               radius *= 0.3; // Thinner travel lines
+            }
+            
+            // The tube geometry has vertices in a circle on the XY plane, extending along Z
+            // Transform this to the segment's local coordinate system
+            vec3 crossSection = (position.x * localZ + position.y * localY) * radius;
+            
+            // Position along the segment: center + direction offset + cross-section
+            vec3 segmentOffset = localX * (t - 0.5) * segmentLength;
+            finalPosition = segmentCenter + segmentOffset + crossSection;
+            
+            // Calculate normal for tube surface (pointing outward from tube axis)
+            if (length(crossSection) > 0.0) {
+               finalNormal = normalize(crossSection);
+            } else {
+               finalNormal = localY; // Fallback for center vertices
+            }
+            
+            // Transform to clip space
+            gl_Position = viewProjection * vec4(finalPosition, 1.0);
+         } else {
+            // Standard transformation for box/line modes
+            gl_Position = viewProjection * finalWorld * vec4(finalPosition, 1.0);
+         }
+         
+         // Proper normal transform in world space
+         if (tubeMode && !lineMesh) {
+            eye_normal = finalNormal; // Already in world space for tubes
+         } else {
+            mat3 normalMat = transpose(inverse(mat3(finalWorld)));
+            eye_normal = normalize(normalMat * finalNormal);
+         }
    }`
 
    static readonly fragmentShader = `
@@ -270,6 +326,9 @@ export default class LineShaderMaterial {
                'lineMesh',
                'showSupports',
                'utime',
+               'tubeMode',
+               'globalTubeRadius',
+               'tubeSides',
             ],
          },
       )
@@ -285,6 +344,9 @@ export default class LineShaderMaterial {
             .setVector4('progressColor', new Vector4(0, 1, 0, 1))
             .setBool('lineMesh', false) // Default to false (lighting enabled)
             .setBool('perimeterOnly', false)
+            .setBool('tubeMode', false) // Default to traditional rendering
+            .setFloat('globalTubeRadius', 0.2) // Default tube radius
+            .setInt('tubeSides', 8) // Default tube quality
       })
 
       //Per loop and per-bind uniforms
@@ -396,6 +458,31 @@ export default class LineShaderMaterial {
       }
       this.material.onBindObservable.addOnce(() => {
          this.material.getEffect()?.setBool('perimeterOnly', !!enabled)
+      })
+   }
+
+   setTubeMode(enabled: boolean, radius: number = 0.2, sides: number = 8) {
+      const eff = this.material.getEffect()
+      if (eff && eff.isReady()) {
+         eff.setBool('tubeMode', !!enabled)
+            .setFloat('globalTubeRadius', radius)
+            .setInt('tubeSides', sides)
+      }
+      this.material.onBindObservable.addOnce(() => {
+         this.material.getEffect()
+            ?.setBool('tubeMode', !!enabled)
+            .setFloat('globalTubeRadius', radius)
+            .setInt('tubeSides', sides)
+      })
+   }
+
+   setTubeRadius(radius: number) {
+      const eff = this.material.getEffect()
+      if (eff && eff.isReady()) {
+         eff.setFloat('globalTubeRadius', radius)
+      }
+      this.material.onBindObservable.addOnce(() => {
+         this.material.getEffect()?.setFloat('globalTubeRadius', radius)
       })
    }
 
