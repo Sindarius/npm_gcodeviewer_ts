@@ -43,11 +43,11 @@ export class TubeGeometryBuilder {
       const topLeft = i + verticesPerRing
       const topRight = i + 1 + verticesPerRing
       
-      // First triangle (bottom-left, top-left, bottom-right)
-      indices.push(bottomLeft, topLeft, bottomRight)
+      // First triangle (counter-clockwise winding)
+      indices.push(bottomLeft, bottomRight, topLeft)
       
-      // Second triangle (bottom-right, top-left, top-right)
-      indices.push(bottomRight, topLeft, topRight)
+      // Second triangle (counter-clockwise winding)
+      indices.push(bottomRight, topRight, topLeft)
     }
     
     // Create vertex data
@@ -88,15 +88,15 @@ export class TubeGeometryBuilder {
     ]
     
     const indices = [
-      // Start face
-      0, 1, 2,  0, 2, 3,
-      // End face  
-      4, 6, 5,  4, 7, 6,
-      // Sides
-      0, 4, 1,  1, 4, 5,  // Bottom
-      2, 6, 3,  3, 6, 7,  // Top
-      0, 3, 4,  3, 7, 4,  // Left
-      1, 5, 2,  2, 5, 6,  // Right
+      // Start face (counter-clockwise when viewed from outside)
+      0, 2, 1,  0, 3, 2,
+      // End face (counter-clockwise when viewed from outside) 
+      4, 5, 6,  4, 6, 7,
+      // Sides (counter-clockwise)
+      0, 1, 4,  1, 5, 4,  // Bottom
+      2, 3, 6,  3, 7, 6,  // Top
+      0, 4, 3,  3, 4, 7,  // Left
+      1, 2, 5,  2, 6, 5,  // Right
     ]
     
     const vertexData = new VertexData()
@@ -177,15 +177,15 @@ export class TubeGeometryBuilder {
     ]
     
     const indices = [
-      // 4 rectangular faces around the tube (2 triangles each)
+      // 4 rectangular faces around the tube (2 triangles each, counter-clockwise)
       // Face 1: Top (0->4->1->5)
-      0, 4, 1,  1, 4, 5,
+      0, 1, 4,  1, 5, 4,
       // Face 2: Right (1->5->2->6)  
-      1, 5, 2,  2, 5, 6,
+      1, 2, 5,  2, 6, 5,
       // Face 3: Bottom (2->6->3->7)
-      2, 6, 3,  3, 6, 7,
+      2, 3, 6,  3, 7, 6,
       // Face 4: Left (3->7->0->4)
-      3, 7, 0,  0, 7, 4,
+      3, 0, 7,  0, 4, 7,
     ]
     
     const vertexData = new VertexData()
