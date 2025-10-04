@@ -677,6 +677,13 @@ export default class Processor {
             tossCount++
             continue
          }
+         
+         // Skip feedrate-only moves (zero-movement segments)
+         if (gCodeline.lineType === 'L' && gCodeline.length < 1e-6) {
+            tossCount++
+            continue
+         }
+         
          try {
             if (gCodeline.lineType === 'L' && gCodeline.extruding) {
                //Regular move
@@ -748,6 +755,13 @@ export default class Processor {
             tossCount++
             continue
          }
+         
+         // Skip feedrate-only moves (zero-movement segments)
+         if (gCodeline.lineType === 'L' && gCodeline.length < 1e-6) {
+            tossCount++
+            continue
+         }
+         
          try {
             if (gCodeline.lineType === 'L' && gCodeline.extruding) {
                //Regular move
@@ -1662,12 +1676,38 @@ export default class Processor {
       feedRate: Float32Array,
       isPerimeter: Float32Array,
    ) {
+      // Check for zero-movement segments (feedrate-only commands like "G1 F6048")
+      const hasMovement = line.start && line.end && (
+         Math.abs((line as any).start[0] - (line as any).end[0]) > 1e-6 ||
+         Math.abs((line as any).start[1] - (line as any).end[1]) > 1e-6 ||
+         Math.abs((line as any).start[2] - (line as any).end[2]) > 1e-6
+      )
+      
+      if (!hasMovement) {
+         // Skip rendering for zero-movement segments (feedrate-only commands)
+         // Set tool flag to indicate this should be discarded
+         const toolIdx = Math.min((line as any).tool || 0, 1023)
+         const flags = 16 // Special flag for zero-movement (bit 4)
+         const packed = toolIdx + flags * 1024
+         toolData.set([packed], idx)
+         
+         // Set other buffers to safe defaults but mark for discard
+         lineData.Matrix.copyToArray(matrixData, idx * 16)
+         colorData.set([0, 0, 0, 0], idx * 4) // Transparent
+         pickData.set([0, 0, 0], idx * 3)
+         filePositionData.set([line.filePosition], idx)
+         fileEndPositionData.set([line.filePosition], idx) // Same as start for zero-length
+         feedRate.set([line.feedRate], idx)
+         isPerimeter.set([0], idx) // Not a perimeter
+         return
+      }
+
       lineData.Matrix.copyToArray(matrixData, idx * 16)
       colorData.set(lineData.Color, idx * 4)
       pickData.set([line.colorId[0] / 255, line.colorId[1] / 255, line.colorId[2] / 255], idx * 3)
       filePositionData.set([line.filePosition], idx)
       fileEndPositionData.set([line.filePosition + line.line.length], idx)
-      // Pack tool index + flags into single float: tool + 1024*(b0=travel,b1=perimeter,b2=support,b3=retraction)
+      // Pack tool index + flags into single float: tool + 1024*(b0=travel,b1=perimeter,b2=support,b3=retraction,b4=zero-movement)
       const toolIdx = Math.min((line as any).tool || 0, 1023)
       const isTravel = (line as any).tool >= 254 || !(line as any).extruding
       const isPerim = !!(line as any).isPerimeter
@@ -1679,6 +1719,7 @@ export default class Processor {
       if (isPerim) flags |= 2
       if (isSupport) flags |= 4
       if (isRetraction) flags |= 8
+      // Note: bit 4 (16) reserved for zero-movement detection
       const packed = toolIdx + flags * 1024
       toolData.set([packed], idx)
       feedRate.set([line.feedRate], idx)

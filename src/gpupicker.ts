@@ -18,24 +18,34 @@ export default class GPUPicker {
    enabled: boolean = true
    throttleMs: number = 50
    private _lastReadTime: number = 0
-   // Optional scissor optimization - enabled by default for better performance
    private _useScissor: boolean = true
-   private _scissorSize: number = 32 // Slightly larger for better usability
+   private _scissorSize: number = 32
    private _lastScissorX: number = 0
    private _lastScissorY: number = 0
+   private _gl: WebGLRenderingContext | WebGL2RenderingContext | null = null
 
-   //  shaderMaterial: CustomMaterial
    shaderMaterial: ShaderMaterial
+
    constructor(scene: Scene, engine: Engine, width: number, height: number) {
       this.scene = scene
       this.engine = engine
       this.width = width
       this.height = height
-      this.renderTarget = new RenderTargetTexture('rt', { width, height }, this.scene, true)
+      this._gl = (this.engine as any)?._gl || null
+
+      this._setupRenderTarget()
+      this._setupShaderMaterial()
+      this._setupRenderCallbacks()
+   }
+
+   private _setupRenderTarget() {
+      this.renderTarget = new RenderTargetTexture('rt', { width: this.width, height: this.height }, this.scene, true)
       this.renderTarget.clearColor = new Color4(0, 0, 0, 0)
       this.renderTarget.refreshRate = 1
       this.scene.customRenderTargets.push(this.renderTarget)
-      console.log(this.scene.customRenderTargets)
+   }
+
+   private _setupShaderMaterial() {
       this.shaderMaterial = new ShaderMaterial(
          'pick_mat',
          this.scene,
@@ -47,7 +57,7 @@ export default class GPUPicker {
             attributes: ['position', 'pickColor', 'filePosition', 'tool'],
             uniforms: [
                'world',
-               'worldView',
+               'worldView', 
                'worldViewProjection',
                'view',
                'projection',
@@ -56,81 +66,102 @@ export default class GPUPicker {
             ],
          },
       )
+   }
 
-      let isEnabled = false
+   private _setupRenderCallbacks() {
+      let wasEnabled = false
+
       this.renderTarget.onBeforeRenderObservable.add(() => {
          if (!this.enabled) return
-         if (this.renderTargetMeshs) {
-            isEnabled = this.renderTargetMeshs[0]?.isEnabled() ?? false
-            this.renderTargetMeshs.forEach((m) => m.setEnabled(true))
-         }
 
-         // Optionally scissor the render area around the pointer to reduce fragment work
-         if (this._useScissor) {
-            const gl: WebGLRenderingContext | WebGL2RenderingContext | undefined = (this.engine as any)?._gl
-            if (gl) {
-               const hx = Math.max(1, (this._scissorSize | 0))
-               const half = Math.floor(hx / 2)
-               const px = Math.round(this.scene.pointerX)
-               const py = Math.round(this.scene.pointerY)
-               // Convert to RTT coordinates (origin bottom-left)
-               this._lastScissorX = Math.max(0, Math.min(this.width - hx, px - half))
-               this._lastScissorY = Math.max(0, Math.min(this.height - hx, this.height - py - half))
-               gl.enable(gl.SCISSOR_TEST)
-               gl.scissor(this._lastScissorX, this._lastScissorY, hx, hx)
-            }
-         }
+         wasEnabled = this._enableMeshesForPicking()
+         this._enableScissorTest()
       })
+
       this.renderTarget.onAfterRenderObservable.add(() => {
          if (!this.enabled) return
-         // Restore scissor state
-         if (this._useScissor) {
-            const gl: WebGLRenderingContext | WebGL2RenderingContext | undefined = (this.engine as any)?._gl
-            if (gl) {
-               gl.disable(gl.SCISSOR_TEST)
-            }
-         }
-         const now = performance.now()
-         if (now - this._lastReadTime < this.throttleMs) {
-            // restore mesh enable state even if skipping readback
-            if (this.renderTargetMeshs && !isEnabled) this.renderTargetMeshs.forEach((m) => m.setEnabled(false))
-            return
-         }
-         this._lastReadTime = now
 
-         const x = Math.round(this.scene.pointerX)
-         const y = this.height - Math.round(this.scene.pointerY)
-
-         const pixels = this.readTexturePixels(
-            this.engine._gl,
-            this.renderTarget._texture._hardwareTexture.underlyingResource,
-            x,
-            y,
-            1,
-            1,
-         )
-
-         if (this.colorTestCallBack) {
-            this.colorTestCallBack(pixels)
+         this._disableScissorTest()
+         
+         if (this._shouldReadPixels()) {
+            this._readAndProcessPixels()
          }
-         if (this.renderTargetMeshs && !isEnabled) {
-            this.renderTargetMeshs.forEach((m) => m.setEnabled(false))
-         }
+         
+         this._restoreMeshStates(wasEnabled)
       })
    }
 
-   readTexturePixels(gl, texture, x, y, w, h) {
-      const frameBuffer = gl.createFramebuffer()
+   private _enableMeshesForPicking(): boolean {
+      if (!this.renderTargetMeshs.length) return false
+      const wasEnabled = this.renderTargetMeshs[0]?.isEnabled() ?? false
+      this.renderTargetMeshs.forEach((m) => m.setEnabled(true))
+      return wasEnabled
+   }
+
+   private _enableScissorTest() {
+      if (!this._useScissor || !this._gl) return
+
+      const half = Math.floor(this._scissorSize / 2)
+      const px = Math.round(this.scene.pointerX)
+      const py = Math.round(this.scene.pointerY)
+      
+      this._lastScissorX = Math.max(0, Math.min(this.width - this._scissorSize, px - half))
+      this._lastScissorY = Math.max(0, Math.min(this.height - this._scissorSize, this.height - py - half))
+      
+      this._gl.enable(this._gl.SCISSOR_TEST)
+      this._gl.scissor(this._lastScissorX, this._lastScissorY, this._scissorSize, this._scissorSize)
+   }
+
+   private _disableScissorTest() {
+      if (this._useScissor && this._gl) {
+         this._gl.disable(this._gl.SCISSOR_TEST)
+      }
+   }
+
+   private _shouldReadPixels(): boolean {
+      const now = performance.now()
+      if (now - this._lastReadTime < this.throttleMs) return false
+      this._lastReadTime = now
+      return true
+   }
+
+   private _readAndProcessPixels() {
+      const x = Math.round(this.scene.pointerX)
+      const y = this.height - Math.round(this.scene.pointerY)
+
+      const pixels = this._readTexturePixels(x, y, 1, 1)
+      
+      if (this.colorTestCallBack) {
+         this.colorTestCallBack(pixels)
+      }
+   }
+
+   private _restoreMeshStates(wasEnabled: boolean) {
+      if (this.renderTargetMeshs.length && !wasEnabled) {
+         this.renderTargetMeshs.forEach((m) => m.setEnabled(false))
+      }
+   }
+
+   private _readTexturePixels(x: number, y: number, w: number, h: number): Uint8Array {
+      if (!this._gl) return new Uint8Array(w * h * 4)
+
+      const frameBuffer = this._gl.createFramebuffer()
       const pixels = new Uint8Array(w * h * 4)
 
-      gl.bindFramebuffer(gl.FRAMEBUFFER, frameBuffer)
-      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0)
-      gl.readPixels(x, y, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
+      this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, frameBuffer)
+      this._gl.framebufferTexture2D(
+         this._gl.FRAMEBUFFER, 
+         this._gl.COLOR_ATTACHMENT0, 
+         this._gl.TEXTURE_2D, 
+         this.renderTarget._texture._hardwareTexture.underlyingResource, 
+         0
+      )
+      this._gl.readPixels(x, y, w, h, this._gl.RGBA, this._gl.UNSIGNED_BYTE, pixels)
 
       return pixels
    }
 
-   updateRenderTargetSize(width, height) {
+   updateRenderTargetSize(width: number, height: number) {
       this.width = width
       this.height = height
       this.renderTarget.resize({ width, height })
@@ -154,8 +185,6 @@ export default class GPUPicker {
 
    setEnabled(enabled: boolean) {
       this.enabled = enabled
-      // Skip whole render pass when disabled
-      // @ts-ignore - property exists on RenderTargetTexture
       ;(this.renderTarget as any).skipRendering = !enabled
    }
 
@@ -163,7 +192,6 @@ export default class GPUPicker {
       this.throttleMs = Math.max(0, ms | 0)
    }
 
-   // Enable/disable scissor optimization (limits pick pass to a small region around the pointer)
    enableScissor(enabled: boolean) {
       this._useScissor = !!enabled
    }
@@ -172,32 +200,20 @@ export default class GPUPicker {
       this._scissorSize = Math.max(1, sizePx | 0)
    }
 
-   /**
-    * Configure GPU picker for maximum performance
-    * - Enables scissor test with small area
-    * - Increases throttling
-    */
+   configurePerformance(options: { scissor?: boolean; scissorSize?: number; throttleMs?: number }) {
+      if (options.scissor !== undefined) this.enableScissor(options.scissor)
+      if (options.scissorSize !== undefined) this.setScissorSize(options.scissorSize)
+      if (options.throttleMs !== undefined) this.setThrottleMs(options.throttleMs)
+   }
+
    optimizeForPerformance() {
-      this.enableScissor(true)
-      this.setScissorSize(16) // Small scissor area
-      this.setThrottleMs(100) // More aggressive throttling
-      console.log('🎯 GPUPicker optimized for performance: scissor=16px, throttle=100ms')
+      this.configurePerformance({ scissor: true, scissorSize: 16, throttleMs: 100 })
    }
 
-   /**
-    * Configure GPU picker for maximum precision  
-    * - Disables scissor test
-    * - Reduces throttling
-    */
    optimizeForPrecision() {
-      this.enableScissor(false)
-      this.setThrottleMs(16) // ~60fps picking
-      console.log('🎯 GPUPicker optimized for precision: no scissor, throttle=16ms')
+      this.configurePerformance({ scissor: false, throttleMs: 16 })
    }
 
-   /**
-    * Get current picker performance info
-    */
    getPerformanceInfo() {
       return {
          scissorEnabled: this._useScissor,
@@ -270,14 +286,16 @@ flat in float fTool;
 #include<helperFunctions>
 
 void main(void) {
-   // Decode packed tool + flags if present: toolIndex + 1024*(b0=travel,...)
+   // Decode packed tool + flags if present: toolIndex + 1024*(b0=travel,b1=perimeter,b2=support,b3=retraction,b4=zero-movement)
    float flags = floor(fTool / 1024.0);
    bool flagTravel = mod(flags, 2.0) >= 1.0;
+   bool flagZeroMovement = mod(floor(flags / 16.0), 2.0) >= 1.0;
    // Backward compatibility: old travel encoded as tool >= 254
    // Legacy travel encoding applies only when no packed flags are present
    bool legacyTravel = (fTool < 1024.0) && (fTool >= 254.0);
 
-   if(vShow < 0.0 || flagTravel || legacyTravel) {
+   // Discard zero-movement segments (feedrate-only commands)
+   if(flagZeroMovement || vShow < 0.0 || flagTravel || legacyTravel) {
       discard;
    } else {
       gl_FragColor = vPickColor; // Write raw color, no conversions to preserve ID fidelity

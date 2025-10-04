@@ -56,7 +56,7 @@ export default class LineShaderMaterial {
    flat out float fShow;
    flat out float focused;
 
- #include<instancesDeclaration>
+#include<instancesDeclaration>
 
    void main()
    {
@@ -66,15 +66,21 @@ export default class LineShaderMaterial {
       focused = 0.0;
       
       // Decode packed tool + flags
-      // Packing: toolIndex + 1024 * (b0=travel, b1=perimeter, b2=support, b3=retraction)
+      // Packing: toolIndex + 1024 * (b0=travel, b1=perimeter, b2=support, b3=retraction, b4=zero-movement)
       float flags = floor(tool / 1024.0);
       float toolIndex = tool - flags * 1024.0;
       bool flagTravel = mod(flags, 2.0) >= 1.0;
       bool flagPerimeter = mod(floor(flags / 2.0), 2.0) >= 1.0;
       bool flagSupport = mod(floor(flags / 4.0), 2.0) >= 1.0;
       bool flagRetraction = mod(floor(flags / 8.0), 2.0) >= 1.0;
+      bool flagZeroMovement = mod(floor(flags / 16.0), 2.0) >= 1.0;
 
       fIsPerimeter = flagPerimeter ? 1.0 : 0.0;
+
+      // Discard zero-movement segments (feedrate-only commands) early
+      if (flagZeroMovement) {
+         bDiscard = 1.0;
+      }
 
       // If perimeter-only is enabled, discard non-perimeter instances early
       if (perimeterOnly && !flagPerimeter) {

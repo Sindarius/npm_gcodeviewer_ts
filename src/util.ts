@@ -25,8 +25,14 @@ export function decodeLineIndexFromPick(pixels: Uint8Array): number {
    const b = pixels[2]
    // Background or no hit
    if (r === 0 && g === 0 && b === 0) return -1
-   const id = (r << 16) | (g << 8) | b
-   return id - 1 // stored color is 1-based line number
+   
+   // Reconstruct the 1-based line number from RGB components
+   // numToColor encodes lineNumber (1-based) as: r=high, g=mid, b=low bits
+   const lineNumber = (r << 16) | (g << 8) | b
+   
+   // Convert to 0-based array index for gCodeLines access
+   // lineNumber 1 -> index 0, lineNumber 2 -> index 1, etc.
+   return lineNumber - 1
 }
 
 export function delay(ms) {
