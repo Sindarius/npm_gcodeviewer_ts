@@ -113,71 +113,34 @@ impl FileProcessor {
                             positions.push((file_position, pos_data));
                         }
                     } else if let Some(arc) = gcode_line.as_arc() {
-                        // Tessellate arcs into line segments for rendering when extruding
                         if arc.extruding {
-                            // Compute center offsets relative to start
-                            let i_off = arc.center.x - arc.start.x;
-                            let j_off = arc.center.y - arc.start.y;
-                            let k_off = arc.center.z - arc.start.z;
-
-                            // Use current properties for tessellation settings
-                            let arc_plane_pp = self.properties.arc_plane.clone();
-                            let fix_radius = self.properties.fix_radius;
-                            let relative_move = !self.properties.absolute_positioning;
-                            let workplace = self.properties.current_workplace().clone();
-
-                            // Arc segment length similar to TS (0.5mm)
-                            let arc_seg_len = 0.5f64;
-
-                            // Map processor_properties::ArcPlane -> utils::ArcPlane
-                            let utils_plane = match arc_plane_pp {
-                                crate::processor_properties::ArcPlane::XY => crate::utils::ArcPlane::XY,
-                                crate::processor_properties::ArcPlane::XZ => crate::utils::ArcPlane::XZ,
-                                crate::processor_properties::ArcPlane::YZ => crate::utils::ArcPlane::YZ,
-                            };
-
-                            if let Ok(arc_result) = crate::utils::tessellate_arc(
-                                arc.start.clone(),
-                                arc.end.clone(),
-                                i_off,
-                                j_off,
-                                Some(k_off),
-                                Some(arc.radius),
-                                arc.clockwise,
-                                utils_plane,
-                                arc_seg_len,
-                                fix_radius,
-                                relative_move,
-                                workplace,
-                            ) {
-                                // Build segments between points
-                                let mut seg_start = arc.start.clone();
-                                let mut seg_index = 0u32;
-                                for p in arc_result.intermediate_points {
-                                    let pos_key = file_position + seg_index; // keep ordering within line
-                                    let pd = PositionData::new_with_color(
-                                        seg_start.x, seg_start.y, seg_start.z,
-                                        p.x, p.y, p.z,
-                                        arc.feed_rate,
-                                        true,
-                                        0.2,
-                                        self.properties.current_is_perimeter,
-                                        // color from slicer feature
-                                        self.properties.current_feature_color.clone(),
-                                        line_number,
-                                        file_position,
-                                        (file_position + line.len() as u32),
-                                        self.properties.current_tool.tool_number as u32,
-                                        self.properties.current_is_support,
-                                    );
-                                    positions.push((pos_key, pd));
-                                    seg_start = p;
-                                    seg_index += 1;
-                                }
+                            let mut seg_index = 0u32;
+                            for segment in &arc.segments {
+                                let pos_key = file_position + seg_index;
+                                let pd = PositionData::new_with_color(
+                                    segment.start.x,
+                                    segment.start.y,
+                                    segment.start.z,
+                                    segment.end.x,
+                                    segment.end.y,
+                                    segment.end.z,
+                                    segment.feed_rate,
+                                    segment.extruding,
+                                    segment.layer_height,
+                                    segment.is_perimeter,
+                                    segment.color.clone(),
+                                    segment.line_number,
+                                    segment.file_position,
+                                    segment.file_position + line.len() as u32,
+                                    segment.tool as u32,
+                                    segment.is_support,
+                                );
+                                positions.push((pos_key, pd));
+                                seg_index += 1;
                             }
                         }
                     }
-                    
+
                     if store_lines {
                         gcode_lines.push(gcode_line);
                     }

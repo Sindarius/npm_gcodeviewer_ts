@@ -17,6 +17,7 @@ export default class GPUPicker {
    renderTargetMeshs: Mesh[] = []
    enabled: boolean = true
    throttleMs: number = 50
+   private _isBatching: boolean = false
    private _lastReadTime: number = 0
    private _useScissor: boolean = true
    private _scissorSize: number = 32
@@ -174,8 +175,12 @@ export default class GPUPicker {
 
    addToRenderList(mesh: Mesh) {
       this.renderTargetMeshs.push(mesh)
-      this.renderTarget.setMaterialForRendering(this.renderTargetMeshs, this.shaderMaterial)
       this.renderTarget.renderList.push(mesh)
+      
+      // Only update material assignment if not in batch mode
+      if (!this._isBatching) {
+         this.renderTarget.setMaterialForRendering(this.renderTargetMeshs, this.shaderMaterial)
+      }
    }
 
    updateCurrentPosition(currentPosition: number) {
@@ -183,9 +188,40 @@ export default class GPUPicker {
       this.shaderMaterial.setFloat('currentPosition', this.currentPosition)
    }
 
+   private removeFromScene() {
+      const index = this.scene.customRenderTargets.indexOf(this.renderTarget)
+      if (index > -1) {
+         this.scene.customRenderTargets.splice(index, 1)
+      }
+   }
+
+   private addToScene() {
+      if (!this.scene.customRenderTargets.includes(this.renderTarget)) {
+         this.scene.customRenderTargets.push(this.renderTarget)
+      }
+   }
+
    setEnabled(enabled: boolean) {
       this.enabled = enabled
       ;(this.renderTarget as any).skipRendering = !enabled
+      
+      if (enabled) {
+         this.addToScene()
+      } else {
+         this.removeFromScene()
+      }
+   }
+
+   beginBatch() {
+      this._isBatching = true
+   }
+
+   endBatch() {
+      this._isBatching = false
+      // Update material assignment once for all accumulated meshes
+      if (this.renderTargetMeshs.length > 0) {
+         this.renderTarget.setMaterialForRendering(this.renderTargetMeshs, this.shaderMaterial)
+      }
    }
 
    setThrottleMs(ms: number) {
@@ -221,6 +257,29 @@ export default class GPUPicker {
          throttleMs: this.throttleMs,
          meshCount: this.renderTargetMeshs.length,
          targetSize: `${this.width}×${this.height}`
+      }
+   }
+
+
+   dispose() {
+      // Remove from scene
+      this.removeFromScene()
+      
+      // Clear render lists
+      this.clearRenderList()
+      
+      // Remove observables
+      this.renderTarget.onBeforeRenderObservable.clear()
+      this.renderTarget.onAfterRenderObservable.clear()
+      
+      // Dispose shader material
+      if (this.shaderMaterial) {
+         this.shaderMaterial.dispose()
+      }
+      
+      // Dispose render target
+      if (this.renderTarget) {
+         this.renderTarget.dispose()
       }
    }
 }

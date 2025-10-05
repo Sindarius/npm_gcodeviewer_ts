@@ -143,6 +143,11 @@ export default class Processor {
       this.meshes = []
       this.modelMaterial = []
 
+      // Reset nozzle position to origin when loading new file
+      if (this.nozzle) {
+         this.nozzle.forcePosition({ x: 0, y: 0, z: 0 })
+      }
+
       // Note: Don't dispose WASM processor here - it should persist across file loads
    }
 
@@ -159,6 +164,14 @@ export default class Processor {
    }
 
    async loadFile(file) {
+      // Save animation state before loading
+      const wasAnimationPlaying = this.isPlaying
+
+      // Stop any running animation
+      if (this.isPlaying) {
+         this.stopNozzleAnimation()
+      }
+
       this.originalFile = file
       // Precompute line offsets to avoid TS compatibility pass when using WASM
       this.computeLineOffsets(file)
@@ -314,6 +327,11 @@ export default class Processor {
       }
 
       this.setMeshMode(this.lastMeshMode)
+
+      // Restart animation if it was playing before
+      if (wasAnimationPlaying && this.nozzle && this.sortedPositions.length > 0) {
+         this.startNozzleAnimation()
+      }
    }
 
    private async loadFileStreamed(file: string) {
@@ -670,6 +688,9 @@ export default class Processor {
       let lastRenderedIdx = 0
       let alphaIndex = 0
 
+      // Start batch mode for GPU picker to avoid O(n²) material assignments
+      this.gpuPicker.beginBatch()
+
       for (let idx = 0; idx < this.gCodeLines.length - 1; idx++) {
          let gCodeline = this.gCodeLines[idx] as Move
          if (this.perimeterOnly && !gCodeline.isPerimeter) {
@@ -728,6 +749,9 @@ export default class Processor {
          this.gpuPicker.addToRenderList(rl[0]) //use the box mesh for all picking
       }
 
+      // End batch mode and apply material assignments once
+      this.gpuPicker.endBatch()
+
       this.worker.postMessage({
          type: 'progress',
          progress: 1,
@@ -747,6 +771,9 @@ export default class Processor {
       let lastRenderedIdx = 0
       let alphaIndex = 0
       const chunkSize = 50000 // Process meshes in smaller chunks
+
+      // Start batch mode for GPU picker to avoid O(n²) material assignments
+      this.gpuPicker.beginBatch()
 
       for (let idx = 0; idx < this.gCodeLines.length - 1; idx++) {
          let gCodeline = this.gCodeLines[idx] as Move
@@ -819,6 +846,9 @@ export default class Processor {
          this.meshes.push(...rl)
          this.gpuPicker.addToRenderList(rl[0]) //use the box mesh for all picking
       }
+
+      // End batch mode and apply material assignments once
+      this.gpuPicker.endBatch()
 
       this.worker.postMessage({
          type: 'progress',
@@ -1384,6 +1414,9 @@ export default class Processor {
       let alphaIndex = 0
       const total = this.wasmProcessor.getPositionCount()
 
+      // Start batch mode for GPU picker to avoid O(n²) material assignments
+      this.gpuPicker.beginBatch()
+
       await this.wasmProcessor.generateRenderBuffersChunked(
          0.4,
          0,
@@ -1405,6 +1438,9 @@ export default class Processor {
             this.worker.postMessage({ type: 'progress', progress: p, label })
          },
       )
+
+      // End batch mode and apply material assignments once
+      this.gpuPicker.endBatch()
 
       const buildTime = performance.now() - startTime
       console.log(`✅ Built meshes via chunked WASM in ${buildTime.toFixed(1)}ms`)
@@ -1846,6 +1882,19 @@ export default class Processor {
       console.log('Starting animation from current file position:', this.filePosition)
 
       this.isPlaying = true
+
+      // If nozzle is visible, immediately jump to start position to avoid long travel
+      if (this.nozzle.isNozzleVisible()) {
+         const currentIndex = this.getCurrentAnimationIndex()
+         const positionData = this.getPositionDataForIndex(currentIndex)
+         if (positionData) {
+            this.nozzle.forcePosition({
+               x: positionData.x,
+               y: positionData.y,
+               z: positionData.z
+            })
+         }
+      }
 
       // Notify UI that animation started
       this.worker.postMessage({
