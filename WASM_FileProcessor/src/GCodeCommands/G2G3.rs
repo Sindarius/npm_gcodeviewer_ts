@@ -19,6 +19,30 @@ pub fn parse_arc_move(
     let tokens = tokenize_line(line);
 
     let current_viewer = props.current_position.clone();
+    let old_e = props.current_e;
+    let mut new_e = old_e;
+    let mut feed_rate = props.current_feed_rate;
+
+    for token in &tokens {
+        if token.is_empty() {
+            continue;
+        }
+        match token.chars().next().unwrap_or(' ').to_ascii_uppercase() {
+            'E' => {
+                let value = parse_token_value(token);
+                new_e = if props.absolute_extrusion {
+                    value
+                } else {
+                    old_e + value
+                };
+            }
+            'F' => {
+                feed_rate = parse_token_value(token);
+            }
+            _ => {}
+        }
+    }
+
     let relative_move = !props.absolute_positioning;
     let workplace_offset = props.current_workplace().clone();
 
@@ -39,30 +63,63 @@ pub fn parse_arc_move(
         .unwrap_or(false)
         || props.cnc_mode;
 
-    let mut segments: Vec<MoveData> = Vec::with_capacity(arc_result.points.len());
+    let mut segments: Vec<MoveData> = Vec::with_capacity(arc_result.points.len().max(1));
     let mut current_point = current_viewer.clone();
 
-    for point in &arc_result.points {
-        let mut segment = MoveData::new(file_position, line_number, String::new());
-        segment.tool = props.current_tool.tool_number;
-        segment.start = current_point.clone();
-        segment.end = point.clone();
-        segment.extruding = extruding;
-        segment.color = props.current_feature_color.clone();
-        segment.feed_rate = props.current_feed_rate;
-        segment.is_perimeter = props.current_is_perimeter;
-        segment.is_support = props.current_is_support;
-        segment.color_id = [
-            ((line_number >> 16) & 0xFF) as u8,
-            ((line_number >> 8) & 0xFF) as u8,
-            (line_number & 0xFF) as u8,
-        ];
-        segments.push(segment);
-        current_point = point.clone();
+    if arc_result.points.is_empty() {
+        if !points_equal(&current_point, &arc_result.final_position) {
+            let mut segment = MoveData::new(file_position, line_number, String::new());
+            segment.tool = props.current_tool.tool_number;
+            segment.start = current_point.clone();
+            segment.end = arc_result.final_position.clone();
+            segment.extruding = extruding;
+            segment.color = props.current_feature_color.clone();
+            segment.feed_rate = feed_rate;
+            segment.is_perimeter = props.current_is_perimeter;
+            segment.is_support = props.current_is_support;
+            segment.color_id = [
+                ((line_number >> 16) & 0xFF) as u8,
+                ((line_number >> 8) & 0xFF) as u8,
+                (line_number & 0xFF) as u8,
+            ];
+            segments.push(segment);
+            current_point = arc_result.final_position.clone();
+        }
+    } else {
+        for point in &arc_result.points {
+            let mut segment = MoveData::new(file_position, line_number, String::new());
+            segment.tool = props.current_tool.tool_number;
+            segment.start = current_point.clone();
+            segment.end = point.clone();
+            segment.extruding = extruding;
+            segment.color = props.current_feature_color.clone();
+            segment.feed_rate = feed_rate;
+            segment.is_perimeter = props.current_is_perimeter;
+            segment.is_support = props.current_is_support;
+            segment.color_id = [
+                ((line_number >> 16) & 0xFF) as u8,
+                ((line_number >> 8) & 0xFF) as u8,
+                (line_number & 0xFF) as u8,
+            ];
+            segments.push(segment);
+            current_point = point.clone();
+        }
     }
 
     props.current_position = arc_result.final_position.clone();
     props.total_rendered_segments += segments.len() as u32;
+
+    props.update_feed_rate(feed_rate);
+    props.current_e = new_e;
+    if extruding {
+        let delta_e = new_e - old_e;
+        if delta_e > 0.0 {
+            props.total_extrusion += delta_e;
+        }
+    }
+
+    props.max_height = props.max_height.max(arc_result.final_position.y);
+    props.min_height = props.min_height.min(arc_result.final_position.y);
 
     let arc_move = ArcMove {
         file_position,
@@ -76,7 +133,7 @@ pub fn parse_arc_move(
         clockwise: is_clockwise,
         extruding,
         color: props.current_feature_color.clone(),
-        feed_rate: props.current_feed_rate,
+        feed_rate,
         segments,
     };
 
@@ -154,7 +211,6 @@ fn do_arc(
                 j = get_number(token, j, false, 0.0);
             }
             'K' => {
-                // Match TypeScript behaviour of treating K the same as J
                 j = get_number(token, j, false, 0.0);
             }
             'R' => {
@@ -173,7 +229,6 @@ fn do_arc(
     if matches!(arc_plane, ArcPlane::XZ) {
         std::mem::swap(&mut i, &mut j);
     }
-
 
     if r != 0.0 {
         let delta0 = get_axis(&move_temp, axis0) - get_axis(&current_temp, axis0);
@@ -305,6 +360,10 @@ fn do_arc(
     }
 }
 
+fn parse_token_value(token: &str) -> f64 {
+    token.chars().skip(1).collect::<String>().trim().parse::<f64>().unwrap_or(0.0)
+}
+
 fn get_number(token: &str, current_value: f64, relative_move: bool, offset: f64) -> f64 {
     let value = token
         .chars()
@@ -353,4 +412,8 @@ fn set_axis(vec: &mut Vector3, axis: char, value: f64) {
         'z' => vec.z = value,
         _ => {}
     }
+}
+
+fn points_equal(a: &Vector3, b: &Vector3) -> bool {
+    (a.x - b.x).abs() < 1e-9 && (a.y - b.y).abs() < 1e-9 && (a.z - b.z).abs() < 1e-9
 }
